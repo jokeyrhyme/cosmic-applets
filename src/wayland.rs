@@ -1,14 +1,21 @@
 use gdk4_wayland::prelude::*;
 use gtk4::{
-    cairo,
-    gdk,
-    glib::{self, subclass::prelude::*, translate::ToGlibPtr},
+    cairo, gdk,
+    glib::{
+        self,
+        subclass::prelude::*,
+        translate::{FromGlibPtrFull, ToGlibPtr},
+    },
     gsk::{self, traits::RendererExt},
     prelude::*,
     subclass::prelude::*,
 };
 use std::{cell::RefCell, os::raw::c_int, ptr, rc::Rc};
-use wayland_client::{event_enum, protocol::wl_output, Filter, GlobalManager, Main};
+use wayland_client::{
+    event_enum,
+    protocol::{wl_display, wl_output},
+    Attached, Filter, GlobalManager, Main,
+};
 use wayland_protocols::wlr::unstable::layer_shell::v1::client::{
     zwlr_layer_shell_v1::{self, Layer},
     zwlr_layer_surface_v1::{self, Anchor, KeyboardInteractivity},
@@ -40,6 +47,9 @@ pub fn get_window_wayland<T: IsA<gtk4::Window>>(
 }
 
 struct CosmicWaylandDisplay {
+    attached_display: Attached<wl_display::WlDisplay>,
+    event_queue: RefCell<wayland_client::EventQueue>,
+    wayland_display: wayland_client::Display,
     wlr_layer_shell: Option<Main<zwlr_layer_shell_v1::ZwlrLayerShellV1>>,
 }
 
@@ -58,56 +68,45 @@ impl CosmicWaylandDisplay {
             )
         }; // XXX?
 
-        let event_queue = wayland_display.create_event_queue();
+        let mut event_queue = wayland_display.create_event_queue();
         // XXX: I guess this is wrong, because it can't attach to multiple queues?
         // I guess if wayland-client uses `wl_proxy_create_wrapper` that doesn't happen?
         let attached_display = wayland_display.attach(event_queue.token());
         let globals = GlobalManager::new(&attached_display);
 
+        event_queue
+            .sync_roundtrip(&mut (), |_, _, _| unreachable!())
+            .unwrap();
+
         let wlr_layer_shell = globals
             .instantiate_exact::<zwlr_layer_shell_v1::ZwlrLayerShellV1>(1)
             .ok();
 
-        let cosmic_wayland_display = Rc::new(Self { wlr_layer_shell });
+        let cosmic_wayland_display = Rc::new(Self {
+            attached_display,
+            event_queue: RefCell::new(event_queue),
+            wayland_display,
+            wlr_layer_shell,
+        });
 
         // XXX should some things here not be freed? attached_display?
 
         unsafe { display.set_data(DATA_KEY, cosmic_wayland_display.clone()) };
 
+        /*
+        // XXX
+        glib::idle_add_local(move || {
+            wayland_display.flush();
+            if let Some(guard) = event_queue.prepare_read() {
+                guard.read_events();
+            }
+            event_queue.dispatch_pending(&mut (), |_, _, _| unreachable!()).unwrap();
+            Continue(true)
+        });
+        */
+
         cosmic_wayland_display
     }
-}
-
-fn f(w: &gtk4::Window, output: Option<&wl_output::WlOutput>, layer: Layer, namespace: String) {
-    let (display, surface) = get_window_wayland(w).unwrap();
-    let wl_surface = surface.wl_surface();
-
-    let cosmic_wayland_display = CosmicWaylandDisplay::for_display(&display);
-    let wlr_layer_shell = match cosmic_wayland_display.wlr_layer_shell.as_ref() {
-        Some(wlr_layer_shell) => wlr_layer_shell,
-        None => {
-            eprintln!("Error: Layer shell not supported by compositor");
-            return;
-        }
-    };
-
-    let wlr_layer_surface =
-        wlr_layer_shell.get_layer_surface(&wl_surface, output, layer, namespace);
-
-    let filter = Filter::new(|event, _, _| match event {
-        Events::LayerSurface { event, object } => match event {
-            zwlr_layer_surface_v1::Event::Configure {
-                serial,
-                width: _,
-                height: _,
-            } => {
-                object.ack_configure(serial);
-            }
-            zwlr_layer_surface_v1::Event::Closed => {}
-            _ => {}
-        },
-    });
-    wlr_layer_surface.assign(filter);
 }
 
 // TODO: store properties, set when mapping?
@@ -138,24 +137,89 @@ impl ObjectImpl for LayerShellWindowInner {
     }
 }
 
+fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::WaylandDisplay) {
+    // XXX
+    let output = None;
+    let layer = Layer::Top;
+    let namespace = String::new();
+
+    let wl_surface = surface.wl_surface();
+
+    let cosmic_wayland_display = CosmicWaylandDisplay::for_display(display);
+    let wlr_layer_shell = match cosmic_wayland_display.wlr_layer_shell.as_ref() {
+        Some(wlr_layer_shell) => wlr_layer_shell,
+        None => {
+            eprintln!("Error: Layer shell not supported by compositor");
+            return;
+        }
+    };
+
+    let wlr_layer_surface =
+        wlr_layer_shell.get_layer_surface(&wl_surface, output, layer, namespace);
+
+    let x = cosmic_wayland_display
+        .event_queue
+        .borrow_mut()
+        .sync_roundtrip(&mut (), |_, _, _| unreachable!());
+    println!(
+        "protocol_error: {:?}",
+        cosmic_wayland_display.wayland_display.protocol_error()
+    );
+    //x.unwrap();
+
+    let filter = Filter::new(|event, _, _| match event {
+        Events::LayerSurface { event, object } => match event {
+            zwlr_layer_surface_v1::Event::Configure {
+                serial,
+                width: _,
+                height: _,
+            } => {
+                println!("Foo");
+                object.ack_configure(serial);
+            }
+            zwlr_layer_surface_v1::Event::Closed => {}
+            _ => {}
+        },
+    });
+    wlr_layer_surface.assign(filter);
+
+    std::mem::forget(wlr_layer_surface); // XXX
+
+    wl_surface.commit(); // Hm...
+
+    // XXX
+}
+
 impl WidgetImpl for LayerShellWindowInner {
     fn realize(&self, widget: &Self::Type) {
-        // Fails not on wayland
-        WaylandCustomSurface::new(&*self.display); // TODO
+        let surface = WaylandCustomSurface::new(&*self.display); // TODO
+        let display = self
+            .display
+            .downcast_ref::<gdk4_wayland::WaylandDisplay>()
+            .unwrap();
+        layer_shell_init(&surface, display);
+        let surface = surface.upcast::<gdk::Surface>();
 
-        let surface = gdk::Surface::new_toplevel(&*self.display); // TODO: change surface type
+        //let surface = gdk::Surface::new_toplevel(&*self.display); // TODO: change surface type
         let widget_ptr: *mut Self::Instance = widget.to_glib_none().0;
         unsafe { gdk_surface_set_widget(surface.to_glib_none().0, widget_ptr as *mut _) };
         *self.surface.borrow_mut() = Some(surface.clone());
         surface.connect_render(move |surface, region| {
             println!("RENDER");
-            unsafe { gtk_widget_render(widget_ptr as *mut _,  surface.to_glib_none().0, region.to_glib_none().0) };
+            unsafe {
+                gtk_widget_render(
+                    widget_ptr as *mut _,
+                    surface.to_glib_none().0,
+                    region.to_glib_none().0,
+                )
+            };
             true
         });
         surface.connect_event(|_, event| {
             //unsafe { gtk_main_do_event(event.to_glib_none().0) };
             true
         });
+        /*
         let toplevel = surface.downcast_ref::<gdk::Toplevel>().unwrap(); // XXX
         toplevel.connect_compute_size(move |toplevel, size| {
             // XXX
@@ -163,11 +227,12 @@ impl WidgetImpl for LayerShellWindowInner {
             size.set_size(500, 500);
             unsafe { gtk_widget_ensure_resize(widget_ptr as *mut _); }
         });
+        */
 
         self.parent_realize(widget);
 
         *self.renderer.borrow_mut() = Some(gsk::Renderer::for_surface(&surface).unwrap()); // XXX unwrap?
-        // XXX
+                                                                                           // XXX
 
         unsafe { gtk4::ffi::gtk_native_realize(widget_ptr as *mut _) };
     }
@@ -193,11 +258,13 @@ impl WidgetImpl for LayerShellWindowInner {
         // TODO: what does `gtk_drag_icon_move_resize` do?
 
         if let Some(surface) = self.surface.borrow().as_ref() {
+            /*
             let layout = gdk::ToplevelLayout::new(); // XXX?
             surface
                 .downcast_ref::<gdk::Toplevel>()
                 .unwrap()
                 .present(&layout); // TODO not toplevel
+            */
         }
 
         println!("parent_map");
@@ -248,11 +315,13 @@ impl WidgetImpl for LayerShellWindowInner {
         // TODO? gtk_css_node_validate
         widget.realize();
         if let Some(surface) = self.surface.borrow().as_ref() {
+            /*
             let layout = gdk::ToplevelLayout::new(); // XXX?
             surface
                 .downcast_ref::<gdk::Toplevel>()
                 .unwrap()
                 .present(&layout); // TODO not toplevel
+            */
         }
         self.parent_show(widget);
         widget.map();
@@ -387,11 +456,17 @@ extern "C" {
         visible: glib::ffi::gboolean,
     );
 
-    pub fn gtk_widget_render(widget: *mut gtk4::ffi::GtkWidget, surface: *mut gdk::ffi::GdkSurface, region: *const cairo::ffi::cairo_region_t);
+    pub fn gtk_widget_render(
+        widget: *mut gtk4::ffi::GtkWidget,
+        surface: *mut gdk::ffi::GdkSurface,
+        region: *const cairo::ffi::cairo_region_t,
+    );
 
     pub fn gtk_widget_ensure_resize(widget: *mut gtk4::ffi::GtkWidget);
 
     pub fn gtk_main_do_event(event: *mut gdk::ffi::GdkEvent);
+
+    pub fn _gdk_frame_clock_idle_new() -> *mut gdk::ffi::GdkFrameClock;
 
     // Added API
     pub fn gdk_wayland_custom_surface_get_type() -> glib::ffi::GType;
@@ -444,7 +519,8 @@ unsafe extern "C" fn get_surface(native: *mut gtk4::ffi::GtkNative) -> *mut gdk:
 unsafe extern "C" fn get_renderer(native: *mut gtk4::ffi::GtkNative) -> *mut gsk::ffi::GskRenderer {
     let instance = &*(native as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
     let imp = instance.impl_();
-    let x = imp.renderer
+    let x = imp
+        .renderer
         .borrow()
         .as_ref()
         .map_or(ptr::null_mut(), |x| x.to_glib_none().0);
@@ -503,6 +579,7 @@ glib::wrapper! {
 
 impl WaylandCustomSurface {
     pub fn new(display: &gdk::Display) -> Self {
-        glib::Object::new(&[("display", display)]).unwrap()
+        let frame_clock = unsafe { gdk::FrameClock::from_glib_full(_gdk_frame_clock_idle_new()) };
+        glib::Object::new(&[("display", display), ("frame-clock", &frame_clock)]).unwrap()
     }
 }
