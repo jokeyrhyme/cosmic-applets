@@ -11,6 +11,20 @@ use crate::x;
 
 const BOTTOM: bool = false;
 
+// XXX
+pub fn window_box() -> gtk4::Widget {
+    let widget = cascade! {
+        gtk4::CenterBox::new();
+        ..set_start_widget(Some(&cascade! {
+            gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+            ..append(&button("Workspaces"));
+            ..append(&button("Applications"));
+        }));
+        ..set_end_widget(Some(&StatusArea::new()));
+    };
+    widget.upcast()
+}
+
 fn button(text: &str) -> gtk4::Button {
     let label = cascade! {
         gtk4::Label::new(Some(text));

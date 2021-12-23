@@ -1,3 +1,10 @@
+// TODO
+// - handle EventQueue in glib main loop
+// - correctly handle size allocation
+// - get popup creation working
+// - input events
+// - cache setting property before realize
+
 use gdk4_wayland::prelude::*;
 use gtk4::{
     cairo, gdk,
@@ -17,11 +24,15 @@ use wayland_client::{
     Attached, Filter, GlobalManager, Main,
 };
 use wayland_protocols::wlr::unstable::layer_shell::v1::client::{
-    zwlr_layer_shell_v1::{self, Layer},
-    zwlr_layer_surface_v1::{self, Anchor, KeyboardInteractivity},
+    zwlr_layer_shell_v1, zwlr_layer_surface_v1,
 };
 
 use crate::deref_cell::DerefCell;
+
+pub use wayland_protocols::wlr::unstable::layer_shell::v1::client::{
+    zwlr_layer_shell_v1::Layer,
+    zwlr_layer_surface_v1::{Anchor, KeyboardInteractivity},
+};
 
 event_enum!(
     Events |
@@ -143,9 +154,13 @@ impl ObjectImpl for LayerShellWindowInner {
     }
 }
 
-fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::WaylandDisplay) {
+fn layer_shell_init(
+    surface: &WaylandCustomSurface,
+    display: &gdk4_wayland::WaylandDisplay,
+) -> Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>> {
     // XXX needed for wl_surface to exist
-    unsafe { gdk_wayland_custom_surface_present(surface.to_glib_none().0, 500, 500) };
+    //unsafe { gdk_wayland_custom_surface_present(surface.to_glib_none().0, 500, 500) };
+    unsafe { gdk_wayland_custom_surface_present(surface.to_glib_none().0, 1280, 40) };
 
     // XXX
     let output = None;
@@ -159,7 +174,7 @@ fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::Wayl
         Some(wlr_layer_shell) => wlr_layer_shell,
         None => {
             eprintln!("Error: Layer shell not supported by compositor");
-            return;
+            return None;
         }
     };
 
@@ -184,13 +199,15 @@ fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::Wayl
 
     wl_surface.commit(); // Hm...
 
-    let x = cosmic_wayland_display
+    cosmic_wayland_display
         .event_queue
         .borrow_mut()
         .sync_roundtrip(&mut (), |_, _, _| {})
         .unwrap();
 
     // XXX
+
+    Some(wlr_layer_surface)
 }
 
 impl WidgetImpl for LayerShellWindowInner {
@@ -200,7 +217,7 @@ impl WidgetImpl for LayerShellWindowInner {
             .display
             .downcast_ref::<gdk4_wayland::WaylandDisplay>()
             .unwrap();
-        layer_shell_init(&surface, display);
+        *self.wlr_layer_surface.borrow_mut() = layer_shell_init(&surface, display);
         let surface = surface.upcast::<gdk::Surface>();
 
         //let surface = gdk::Surface::new_toplevel(&*self.display); // TODO: change surface type
@@ -219,7 +236,7 @@ impl WidgetImpl for LayerShellWindowInner {
             true
         });
         surface.connect_event(|_, event| {
-            //unsafe { gtk_main_do_event(event.to_glib_none().0) };
+            unsafe { gtk_main_do_event(event.to_glib_none().0) };
             true
         });
         /*
