@@ -173,7 +173,7 @@ fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::Wayl
                 width: _,
                 height: _,
             } => {
-                panic!("ack_configure");
+                println!("ack_configure");
                 object.ack_configure(serial);
             }
             zwlr_layer_surface_v1::Event::Closed => {}
@@ -182,13 +182,13 @@ fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::Wayl
     });
     wlr_layer_surface.assign(filter);
 
+    wl_surface.commit(); // Hm...
+
     let x = cosmic_wayland_display
         .event_queue
         .borrow_mut()
         .sync_roundtrip(&mut (), |_, _, _| {})
         .unwrap();
-
-    wl_surface.commit(); // Hm...
 
     // XXX
 }
