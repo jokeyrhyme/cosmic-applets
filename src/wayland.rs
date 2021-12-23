@@ -74,13 +74,19 @@ impl CosmicWaylandDisplay {
         let attached_display = wayland_display.attach(event_queue.token());
         let globals = GlobalManager::new(&attached_display);
 
-        event_queue
-            .sync_roundtrip(&mut (), |_, _, _| unreachable!())
-            .unwrap();
+        event_queue.sync_roundtrip(&mut (), |_, _, _| {}).unwrap();
 
         let wlr_layer_shell = globals
             .instantiate_exact::<zwlr_layer_shell_v1::ZwlrLayerShellV1>(1)
             .ok();
+
+        let wl_seat = globals
+            .instantiate_exact::<wayland_client::protocol::wl_seat::WlSeat>(1)
+            .ok()
+            .unwrap();
+        let wl_pointer = wl_seat.get_pointer();
+
+        event_queue.sync_roundtrip(&mut (), |_, _, _| {}).unwrap();
 
         let cosmic_wayland_display = Rc::new(Self {
             attached_display,
@@ -138,6 +144,9 @@ impl ObjectImpl for LayerShellWindowInner {
 }
 
 fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::WaylandDisplay) {
+    // XXX needed for wl_surface to exist
+    unsafe { gdk_wayland_custom_surface_present(surface.to_glib_none().0, 500, 500) };
+
     // XXX
     let output = None;
     let layer = Layer::Top;
@@ -157,16 +166,6 @@ fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::Wayl
     let wlr_layer_surface =
         wlr_layer_shell.get_layer_surface(&wl_surface, output, layer, namespace);
 
-    let x = cosmic_wayland_display
-        .event_queue
-        .borrow_mut()
-        .sync_roundtrip(&mut (), |_, _, _| unreachable!());
-    println!(
-        "protocol_error: {:?}",
-        cosmic_wayland_display.wayland_display.protocol_error()
-    );
-    //x.unwrap();
-
     let filter = Filter::new(|event, _, _| match event {
         Events::LayerSurface { event, object } => match event {
             zwlr_layer_surface_v1::Event::Configure {
@@ -174,7 +173,7 @@ fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::Wayl
                 width: _,
                 height: _,
             } => {
-                println!("Foo");
+                panic!("ack_configure");
                 object.ack_configure(serial);
             }
             zwlr_layer_surface_v1::Event::Closed => {}
@@ -183,7 +182,11 @@ fn layer_shell_init(surface: &WaylandCustomSurface, display: &gdk4_wayland::Wayl
     });
     wlr_layer_surface.assign(filter);
 
-    std::mem::forget(wlr_layer_surface); // XXX
+    let x = cosmic_wayland_display
+        .event_queue
+        .borrow_mut()
+        .sync_roundtrip(&mut (), |_, _, _| {})
+        .unwrap();
 
     wl_surface.commit(); // Hm...
 
@@ -228,6 +231,10 @@ impl WidgetImpl for LayerShellWindowInner {
             unsafe { gtk_widget_ensure_resize(widget_ptr as *mut _); }
         });
         */
+        // XXX
+        unsafe {
+            gtk_widget_ensure_resize(widget_ptr as *mut _);
+        }
 
         self.parent_realize(widget);
 
@@ -267,7 +274,6 @@ impl WidgetImpl for LayerShellWindowInner {
             */
         }
 
-        println!("parent_map");
         self.parent_map(widget);
 
         if let Some(child) = self.child.borrow().as_ref() {
@@ -440,6 +446,7 @@ pub struct GtkConstraintSolver {
     _private: [u8; 0],
 }
 
+#[repr(C)]
 pub struct GdkWaylandCustomSurface {
     _private: [u8; 0],
 }
@@ -470,6 +477,12 @@ extern "C" {
 
     // Added API
     pub fn gdk_wayland_custom_surface_get_type() -> glib::ffi::GType;
+
+    pub fn gdk_wayland_custom_surface_present(
+        surface: *mut GdkWaylandCustomSurface,
+        width: c_int,
+        height: c_int,
+    ) -> glib::ffi::gboolean;
 }
 
 // XXX needs to be public in gtk
@@ -519,13 +532,10 @@ unsafe extern "C" fn get_surface(native: *mut gtk4::ffi::GtkNative) -> *mut gdk:
 unsafe extern "C" fn get_renderer(native: *mut gtk4::ffi::GtkNative) -> *mut gsk::ffi::GskRenderer {
     let instance = &*(native as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
     let imp = instance.impl_();
-    let x = imp
-        .renderer
+    imp.renderer
         .borrow()
         .as_ref()
-        .map_or(ptr::null_mut(), |x| x.to_glib_none().0);
-    println!("Foo: {:?}", x);
-    x
+        .map_or(ptr::null_mut(), |x| x.to_glib_none().0)
 }
 
 unsafe extern "C" fn get_surface_transform(

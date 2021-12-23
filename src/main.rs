@@ -25,7 +25,7 @@ fn main() {
     let window = wayland::LayerShellWindow::new();
     //let window = gtk4::Window::new();
     let label = gtk4::Label::new(Some("foo"));
-    label.set_size_request(500, 500);
+    //label.set_size_request(500, 500);
     window.set_child(Some(&label));
     println!("first_child: {:?}", window.first_child());
     window.show();
