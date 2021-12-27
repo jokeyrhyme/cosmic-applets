@@ -7,12 +7,33 @@ use crate::application::PanelApp;
 use crate::deref_cell::DerefCell;
 use crate::status_area::StatusArea;
 use crate::time_button::TimeButton;
+use crate::wayland;
 use crate::x;
 
 const BOTTOM: bool = false;
 
+pub fn create(app: &PanelApp, monitor: gdk::Monitor) {
+    /*
+    cascade! {
+        PanelWindow::new(app, monitor);
+        ..show();
+    };
+    */
+
+    let window = wayland::LayerShellWindow::new();
+    window.set_child(Some(&window_box(app)));
+    window.realize();
+    window.set_anchor(wayland::Anchor::Top | wayland::Anchor::Left); // TODO: how to handle centering?
+    //window.set_exclusive_zone(40);
+    window.show();
+
+    // XXX
+    std::mem::forget(app.hold());
+    std::mem::forget(window);
+}
+
 // XXX
-pub fn window_box() -> gtk4::Widget {
+fn window_box(app: &PanelApp) -> gtk4::Widget {
     let widget = cascade! {
         gtk4::CenterBox::new();
         ..set_start_widget(Some(&cascade! {
@@ -20,6 +41,7 @@ pub fn window_box() -> gtk4::Widget {
             ..append(&button("Workspaces"));
             ..append(&button("Applications"));
         }));
+        ..set_center_widget(Some(&TimeButton::new(app)));
         ..set_end_widget(Some(&StatusArea::new()));
     };
     widget.upcast()

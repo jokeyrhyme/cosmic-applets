@@ -10,7 +10,7 @@ use std::cell::Cell;
 use crate::deref_cell::DerefCell;
 use crate::notifications::Notifications;
 use crate::status_notifier_watcher;
-use crate::window::PanelWindow;
+use crate::window;
 
 #[derive(Default)]
 pub struct PanelAppInner {
@@ -84,10 +84,7 @@ impl PanelApp {
     }
 
     fn add_window_for_monitor(&self, monitor: gdk::Monitor) {
-        cascade! {
-            PanelWindow::new(self, monitor);
-            ..show();
-        };
+        window::create(self, monitor);
     }
 
     pub fn notifications(&self) -> &Notifications {
