@@ -4,6 +4,7 @@
 // - get popup creation working
 // - input events
 // - cache setting property before realize
+// - scale-factor
 
 use gdk4_wayland::prelude::*;
 use gtk4::{
@@ -330,7 +331,7 @@ unsafe impl IsImplementable<LayerShellWindowInner> for gtk4::Root {
 
 glib::wrapper! {
     pub struct LayerShellWindow(ObjectSubclass<LayerShellWindowInner>)
-        @extends gtk4::Widget, @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget;
+        @extends gtk4::Widget, @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget, gtk4::Native, gtk4::Root;
 }
 // TODO handle configure/destroy
 // TODO presumably call destroy() when appropriate?
@@ -368,8 +369,11 @@ impl LayerShellWindow {
         surface: &WaylandCustomSurface,
         display: &gdk4_wayland::WaylandDisplay,
     ) -> Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>> {
+        // TODO update
+        let width = self.measure(gtk4::Orientation::Horizontal, -1).1;
+        let height = self.measure(gtk4::Orientation::Vertical, width).1;
         // XXX needed for wl_surface to exist
-        surface.present(1280, 40);
+        surface.present(width, height);
 
         let wl_surface = surface.wl_surface();
 
@@ -388,20 +392,22 @@ impl LayerShellWindow {
         let wlr_layer_surface =
             wlr_layer_shell.get_layer_surface(&wl_surface, output.as_ref(), layer, namespace);
 
-        let filter = Filter::new(|event, _, _| match event {
-            Events::LayerSurface { event, object } => match event {
-                zwlr_layer_surface_v1::Event::Configure {
-                    serial,
-                    width,
-                    height,
-                } => {
-                    println!("ack_configure: {}, {}", width, height);
-                    object.ack_configure(serial);
-                }
-                zwlr_layer_surface_v1::Event::Closed => {}
-                _ => {}
-            },
-        });
+        let filter = Filter::new(
+            clone!(@strong self as self_ => move |event, _, _| match event {
+                Events::LayerSurface { event, object } => match event {
+                    zwlr_layer_surface_v1::Event::Configure {
+                        serial,
+                        width,
+                        height,
+                    } => {
+                        println!("ack_configure: {}, {}", width, height);
+                        object.ack_configure(serial);
+                    }
+                    zwlr_layer_surface_v1::Event::Closed => {}
+                    _ => {}
+                },
+            }),
+        );
         wlr_layer_surface.assign(filter);
 
         wl_surface.commit(); // Hm...
