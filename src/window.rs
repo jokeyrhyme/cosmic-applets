@@ -24,7 +24,7 @@ pub fn create(app: &PanelApp, monitor: gdk::Monitor) {
     window.set_child(Some(&window_box(app)));
     window.realize();
     window.set_anchor(wayland::Anchor::Top | wayland::Anchor::Left); // TODO: how to handle centering?
-    //window.set_exclusive_zone(40);
+                                                                     //window.set_exclusive_zone(40);
     window.show();
 
     // XXX

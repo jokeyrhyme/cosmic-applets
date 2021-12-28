@@ -9,7 +9,7 @@ use gdk4_wayland::prelude::*;
 use gtk4::{
     cairo, gdk,
     glib::{
-        self,
+        self, clone,
         subclass::prelude::*,
         translate::{FromGlibPtrFull, ToGlibPtr},
     },
@@ -97,8 +97,6 @@ impl CosmicWaylandDisplay {
             .unwrap();
         let wl_pointer = wl_seat.get_pointer();
 
-        event_queue.sync_roundtrip(&mut (), |_, _, _| {}).unwrap();
-
         let cosmic_wayland_display = Rc::new(Self {
             attached_display,
             event_queue: RefCell::new(event_queue),
@@ -110,17 +108,17 @@ impl CosmicWaylandDisplay {
 
         unsafe { display.set_data(DATA_KEY, cosmic_wayland_display.clone()) };
 
-        /*
-        // XXX
-        glib::idle_add_local(move || {
-            wayland_display.flush();
+        // XXX efficiency?
+        // XXX strong?
+        glib::idle_add_local(clone!(@strong cosmic_wayland_display => move || {
+            cosmic_wayland_display.wayland_display.flush();
+            let mut event_queue = cosmic_wayland_display.event_queue.borrow_mut();
             if let Some(guard) = event_queue.prepare_read() {
                 guard.read_events();
             }
-            event_queue.dispatch_pending(&mut (), |_, _, _| unreachable!()).unwrap();
+            event_queue.dispatch_pending(&mut (), |_, _, _| {}).unwrap();
             Continue(true)
-        });
-        */
+        }));
 
         cosmic_wayland_display
     }
