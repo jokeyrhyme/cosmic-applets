@@ -133,6 +133,9 @@ pub struct LayerShellWindowInner {
     wlr_layer_surface: RefCell<Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>>>, // TODO: set
     constraint_solver: DerefCell<ConstraintSolver>,
     child: RefCell<Option<gtk4::Widget>>,
+    monitor: DerefCell<Option<gdk4_wayland::WaylandMonitor>>,
+    layer: DerefCell<Layer>,
+    namespace: DerefCell<String>,
 }
 
 #[glib::object_subclass]
@@ -152,62 +155,6 @@ impl ObjectImpl for LayerShellWindowInner {
     }
 }
 
-fn layer_shell_init(
-    surface: &WaylandCustomSurface,
-    display: &gdk4_wayland::WaylandDisplay,
-) -> Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>> {
-    // XXX needed for wl_surface to exist
-    //unsafe { gdk_wayland_custom_surface_present(surface.to_glib_none().0, 500, 500) };
-    unsafe { gdk_wayland_custom_surface_present(surface.to_glib_none().0, 1280, 40) };
-
-    // XXX
-    let output = None;
-    let layer = Layer::Top;
-    let namespace = String::new();
-
-    let wl_surface = surface.wl_surface();
-
-    let cosmic_wayland_display = CosmicWaylandDisplay::for_display(display);
-    let wlr_layer_shell = match cosmic_wayland_display.wlr_layer_shell.as_ref() {
-        Some(wlr_layer_shell) => wlr_layer_shell,
-        None => {
-            eprintln!("Error: Layer shell not supported by compositor");
-            return None;
-        }
-    };
-
-    let wlr_layer_surface =
-        wlr_layer_shell.get_layer_surface(&wl_surface, output, layer, namespace);
-
-    let filter = Filter::new(|event, _, _| match event {
-        Events::LayerSurface { event, object } => match event {
-            zwlr_layer_surface_v1::Event::Configure {
-                serial,
-                width: _,
-                height: _,
-            } => {
-                println!("ack_configure");
-                object.ack_configure(serial);
-            }
-            zwlr_layer_surface_v1::Event::Closed => {}
-            _ => {}
-        },
-    });
-    wlr_layer_surface.assign(filter);
-
-    wl_surface.commit(); // Hm...
-
-    cosmic_wayland_display
-        .event_queue
-        .borrow_mut()
-        .sync_roundtrip(&mut (), |_, _, _| {})
-        .unwrap();
-
-    // XXX
-
-    Some(wlr_layer_surface)
-}
-
 impl WidgetImpl for LayerShellWindowInner {
     fn realize(&self, widget: &Self::Type) {
         let surface = WaylandCustomSurface::new(&*self.display); // TODO
@@ -215,7 +162,7 @@ impl WidgetImpl for LayerShellWindowInner {
             .display
             .downcast_ref::<gdk4_wayland::WaylandDisplay>()
             .unwrap();
-        *self.wlr_layer_surface.borrow_mut() = layer_shell_init(&surface, display);
+        *self.wlr_layer_surface.borrow_mut() = widget.layer_shell_init(&surface, display);
         let surface = surface.upcast::<gdk::Surface>();
 
         //let surface = gdk::Surface::new_toplevel(&*self.display); // TODO: change surface type
@@ -389,8 +336,16 @@ glib::wrapper! {
 // TODO presumably call destroy() when appropriate?
 // What do wayland-client types do when associated connection is gone? Panic? UB?
 impl LayerShellWindow {
-    pub fn new() -> Self {
-        glib::Object::new(&[]).unwrap()
+    pub fn new(
+        monitor: Option<&gdk4_wayland::WaylandMonitor>,
+        layer: Layer,
+        namespace: &str,
+    ) -> Self {
+        let obj: Self = glib::Object::new(&[]).unwrap();
+        obj.inner().monitor.set(monitor.cloned());
+        obj.inner().layer.set(layer);
+        obj.inner().namespace.set(namespace.to_string());
+        obj
     }
 
     fn inner(&self) -> &LayerShellWindowInner {
@@ -406,6 +361,60 @@ impl LayerShellWindow {
             w.set_parent(self);
         }
         *child = w.map(|x| x.clone().upcast());
+    }
+
+    fn layer_shell_init(
+        &self,
+        surface: &WaylandCustomSurface,
+        display: &gdk4_wayland::WaylandDisplay,
+    ) -> Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>> {
+        // XXX needed for wl_surface to exist
+        surface.present(1280, 40);
+
+        let wl_surface = surface.wl_surface();
+
+        let cosmic_wayland_display = CosmicWaylandDisplay::for_display(display);
+        let wlr_layer_shell = match cosmic_wayland_display.wlr_layer_shell.as_ref() {
+            Some(wlr_layer_shell) => wlr_layer_shell,
+            None => {
+                eprintln!("Error: Layer shell not supported by compositor");
+                return None;
+            }
+        };
+
+        let output = self.inner().monitor.as_ref().map(|x| x.wl_output());
+        let layer = *self.inner().layer;
+        let namespace = self.inner().namespace.clone();
+        let wlr_layer_surface =
+            wlr_layer_shell.get_layer_surface(&wl_surface, output.as_ref(), layer, namespace);
+
+        let filter = Filter::new(|event, _, _| match event {
+            Events::LayerSurface { event, object } => match event {
+                zwlr_layer_surface_v1::Event::Configure {
+                    serial,
+                    width,
+                    height,
+                } => {
+                    println!("ack_configure: {}, {}", width, height);
+                    object.ack_configure(serial);
+                }
+                zwlr_layer_surface_v1::Event::Closed => {}
+                _ => {}
+            },
+        });
+        wlr_layer_surface.assign(filter);
+
+        wl_surface.commit(); // Hm...
+
+        cosmic_wayland_display
+            .event_queue
+            .borrow_mut()
+            .sync_roundtrip(&mut (), |_, _, _| {})
+            .unwrap();
+
+        // XXX
+
+        Some(wlr_layer_surface)
     }
 
     fn get_popup(&self, popup: &gdk4_wayland::WaylandPopup) {
@@ -606,5 +615,9 @@ impl WaylandCustomSurface {
     pub fn new(display: &gdk::Display) -> Self {
         let frame_clock = unsafe { gdk::FrameClock::from_glib_full(_gdk_frame_clock_idle_new()) };
         glib::Object::new(&[("display", display), ("frame-clock", &frame_clock)]).unwrap()
+    }
+
+    fn present(&self, width: i32, height: i32) {
+        unsafe { gdk_wayland_custom_surface_present(self.to_glib_none().0, width, height) };
     }
 }
