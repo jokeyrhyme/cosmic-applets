@@ -40,24 +40,6 @@ event_enum!(
     LayerSurface => zwlr_layer_surface_v1::ZwlrLayerSurfaceV1
 );
 
-// XXX possibly won't be able to use GtkWindow for wayland.
-// - How to detect whether or not to use Wayland? I guess gdk4::Display::default() downcasting
-//   * Returns None if no default display
-pub fn get_window_wayland<T: IsA<gtk4::Window>>(
-    window: &T,
-) -> Option<(gdk4_wayland::WaylandDisplay, gdk4_wayland::WaylandSurface)> {
-    let surface = window
-        .upcast_ref()
-        .surface()?
-        .downcast::<gdk4_wayland::WaylandSurface>()
-        .ok()?;
-    let display = surface
-        .display()?
-        .downcast::<gdk4_wayland::WaylandDisplay>()
-        .ok()?;
-    Some((display, surface))
-}
-
 struct CosmicWaylandDisplay {
     attached_display: Attached<wl_display::WlDisplay>,
     event_queue: RefCell<wayland_client::EventQueue>,
@@ -81,8 +63,6 @@ impl CosmicWaylandDisplay {
         }; // XXX?
 
         let mut event_queue = wayland_display.create_event_queue();
-        // XXX: I guess this is wrong, because it can't attach to multiple queues?
-        // I guess if wayland-client uses `wl_proxy_create_wrapper` that doesn't happen?
         let attached_display = wayland_display.attach(event_queue.token());
         let globals = GlobalManager::new(&attached_display);
 
@@ -105,17 +85,16 @@ impl CosmicWaylandDisplay {
             wlr_layer_shell,
         });
 
-        // XXX should some things here not be freed? attached_display?
-
         unsafe { display.set_data(DATA_KEY, cosmic_wayland_display.clone()) };
 
         // XXX efficiency?
         // XXX strong?
+        // XXX unwrap?
         glib::idle_add_local(clone!(@strong cosmic_wayland_display => move || {
-            cosmic_wayland_display.wayland_display.flush();
+            cosmic_wayland_display.wayland_display.flush().unwrap();
             let mut event_queue = cosmic_wayland_display.event_queue.borrow_mut();
             if let Some(guard) = event_queue.prepare_read() {
-                guard.read_events();
+                guard.read_events().unwrap();
             }
             event_queue.dispatch_pending(&mut (), |_, _, _| {}).unwrap();
             Continue(true)
@@ -129,7 +108,7 @@ impl CosmicWaylandDisplay {
 #[derive(Default)]
 pub struct LayerShellWindowInner {
     display: DerefCell<gdk::Display>,
-    surface: RefCell<Option<gdk::Surface>>,
+    surface: RefCell<Option<WaylandCustomSurface>>,
     renderer: RefCell<Option<gsk::Renderer>>,
     wlr_layer_surface: RefCell<Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>>>, // TODO: set
     constraint_solver: DerefCell<ConstraintSolver>,
@@ -164,18 +143,17 @@ impl WidgetImpl for LayerShellWindowInner {
             .downcast_ref::<gdk4_wayland::WaylandDisplay>()
             .unwrap();
         *self.wlr_layer_surface.borrow_mut() = widget.layer_shell_init(&surface, display);
-        let surface = surface.upcast::<gdk::Surface>();
 
-        //let surface = gdk::Surface::new_toplevel(&*self.display); // TODO: change surface type
-        let widget_ptr: *mut Self::Instance = widget.to_glib_none().0;
-        unsafe { gdk_surface_set_widget(surface.to_glib_none().0, widget_ptr as *mut _) };
+        let widget_ptr: *mut _ = widget.to_glib_none().0;
+        let surface_ptr: *mut _ = surface.to_glib_none().0;
+        unsafe { gdk_surface_set_widget(surface_ptr as *mut _, widget_ptr as *mut _) };
         *self.surface.borrow_mut() = Some(surface.clone());
         surface.connect_render(move |surface, region| {
             println!("RENDER");
             unsafe {
                 gtk_widget_render(
                     widget_ptr as *mut _,
-                    surface.to_glib_none().0,
+                    surface_ptr as *mut _,
                     region.to_glib_none().0,
                 )
             };
@@ -201,8 +179,8 @@ impl WidgetImpl for LayerShellWindowInner {
 
         self.parent_realize(widget);
 
-        *self.renderer.borrow_mut() = Some(gsk::Renderer::for_surface(&surface).unwrap()); // XXX unwrap?
-                                                                                           // XXX
+        *self.renderer.borrow_mut() =
+            Some(gsk::Renderer::for_surface(surface.upcast_ref()).unwrap()); // XXX unwrap?
 
         unsafe { gtk4::ffi::gtk_native_realize(widget_ptr as *mut _) };
     }
@@ -219,7 +197,8 @@ impl WidgetImpl for LayerShellWindowInner {
         }
 
         if let Some(surface) = self.surface.borrow().as_ref() {
-            unsafe { gdk_surface_set_widget(surface.to_glib_none().0, ptr::null_mut()) };
+            let surface_ptr: *mut _ = surface.to_glib_none().0;
+            unsafe { gdk_surface_set_widget(surface_ptr as *mut _, ptr::null_mut()) };
         }
         // XXX
     }
@@ -228,13 +207,9 @@ impl WidgetImpl for LayerShellWindowInner {
         // TODO: what does `gtk_drag_icon_move_resize` do?
 
         if let Some(surface) = self.surface.borrow().as_ref() {
-            /*
-            let layout = gdk::ToplevelLayout::new(); // XXX?
-            surface
-                .downcast_ref::<gdk::Toplevel>()
-                .unwrap()
-                .present(&layout); // TODO not toplevel
-            */
+            let width = widget.measure(gtk4::Orientation::Horizontal, -1).1;
+            let height = widget.measure(gtk4::Orientation::Vertical, width).1;
+            surface.present(width, height);
         }
 
         self.parent_map(widget);
@@ -553,10 +528,9 @@ pub struct GtkRootInterface {
 unsafe extern "C" fn get_surface(native: *mut gtk4::ffi::GtkNative) -> *mut gdk::ffi::GdkSurface {
     let instance = &*(native as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
     let imp = instance.impl_();
-    imp.surface
-        .borrow()
-        .as_ref()
-        .map_or(ptr::null_mut(), |x| x.to_glib_none().0)
+    imp.surface.borrow().as_ref().map_or(ptr::null_mut(), |x| {
+        x.upcast_ref::<gdk::Surface>().to_glib_none().0
+    })
 }
 
 unsafe extern "C" fn get_renderer(native: *mut gtk4::ffi::GtkNative) -> *mut gsk::ffi::GskRenderer {
