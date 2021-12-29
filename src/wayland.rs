@@ -6,6 +6,7 @@
 // - cache setting property before realize
 // - scale-factor
 
+use derivative::Derivative;
 use gdk4_wayland::prelude::*;
 use gtk4::{
     cairo, gdk,
@@ -18,7 +19,12 @@ use gtk4::{
     prelude::*,
     subclass::prelude::*,
 };
-use std::{cell::RefCell, os::raw::c_int, ptr, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    os::raw::c_int,
+    ptr,
+    rc::Rc,
+};
 use wayland_client::{
     event_enum,
     protocol::{wl_display, wl_output},
@@ -105,7 +111,8 @@ impl CosmicWaylandDisplay {
 }
 
 // TODO: store properties, set when mapping?
-#[derive(Default)]
+#[derive(Derivative)]
+#[derivative(Default)]
 pub struct LayerShellWindowInner {
     display: DerefCell<gdk::Display>,
     surface: RefCell<Option<WaylandCustomSurface>>,
@@ -114,7 +121,14 @@ pub struct LayerShellWindowInner {
     constraint_solver: DerefCell<ConstraintSolver>,
     child: RefCell<Option<gtk4::Widget>>,
     monitor: DerefCell<Option<gdk4_wayland::WaylandMonitor>>,
-    layer: DerefCell<Layer>,
+    #[derivative(Default(value = "Cell::new(Layer::Background)"))]
+    layer: Cell<Layer>,
+    #[derivative(Default(value = "Cell::new(Anchor::empty())"))]
+    anchor: Cell<Anchor>,
+    exclusive_zone: Cell<i32>,
+    margin: Cell<(i32, i32, i32, i32)>,
+    #[derivative(Default(value = "Cell::new(KeyboardInteractivity::None)"))]
+    keyboard_interactivity: Cell<KeyboardInteractivity>,
     namespace: DerefCell<String>,
 }
 
@@ -362,10 +376,16 @@ impl LayerShellWindow {
         };
 
         let output = self.inner().monitor.as_ref().map(|x| x.wl_output());
-        let layer = *self.inner().layer;
-        let namespace = self.inner().namespace.clone();
+        let layer = self.layer();
+        let namespace = self.namespace().to_string();
         let wlr_layer_surface =
             wlr_layer_shell.get_layer_surface(&wl_surface, output.as_ref(), layer, namespace);
+
+        wlr_layer_surface.set_anchor(self.anchor());
+        wlr_layer_surface.set_exclusive_zone(self.exclusive_zone());
+        let margin = self.margin();
+        wlr_layer_surface.set_margin(margin.0, margin.1, margin.2, margin.3);
+        wlr_layer_surface.set_keyboard_interactivity(self.keyboard_interactivity());
 
         let filter = Filter::new(
             clone!(@strong self as self_ => move |event, _, _| match event {
@@ -405,40 +425,71 @@ impl LayerShellWindow {
         }
     }
 
+    /*
     pub fn set_size(&self, width: u32, height: u32) {
         if let Some(wlr_layer_surface) = self.inner().wlr_layer_surface.borrow().as_ref() {
             wlr_layer_surface.set_size(width, height);
         };
+    }
+    */
+
+    pub fn anchor(&self) -> Anchor {
+        self.inner().anchor.get()
     }
 
     pub fn set_anchor(&self, anchor: Anchor) {
         if let Some(wlr_layer_surface) = self.inner().wlr_layer_surface.borrow().as_ref() {
             wlr_layer_surface.set_anchor(anchor);
         };
+        self.inner().anchor.set(anchor);
+    }
+
+    pub fn exclusive_zone(&self) -> i32 {
+        self.inner().exclusive_zone.get()
     }
 
     pub fn set_exclusive_zone(&self, zone: i32) {
         if let Some(wlr_layer_surface) = self.inner().wlr_layer_surface.borrow().as_ref() {
             wlr_layer_surface.set_exclusive_zone(zone);
         };
+        self.inner().exclusive_zone.set(zone);
+    }
+
+    pub fn margin(&self) -> (i32, i32, i32, i32) {
+        self.inner().margin.get()
     }
 
     pub fn set_margin(&self, top: i32, right: i32, bottom: i32, left: i32) {
         if let Some(wlr_layer_surface) = self.inner().wlr_layer_surface.borrow().as_ref() {
             wlr_layer_surface.set_margin(top, right, bottom, left);
         };
+        self.inner().margin.set((top, right, bottom, left));
+    }
+
+    pub fn keyboard_interactivity(&self) -> KeyboardInteractivity {
+        self.inner().keyboard_interactivity.get()
     }
 
     pub fn set_keyboard_interactivity(&self, interactivity: KeyboardInteractivity) {
         if let Some(wlr_layer_surface) = self.inner().wlr_layer_surface.borrow().as_ref() {
             wlr_layer_surface.set_keyboard_interactivity(interactivity);
         };
+        self.inner().keyboard_interactivity.set(interactivity);
+    }
+
+    pub fn layer(&self) -> Layer {
+        self.inner().layer.get()
     }
 
     pub fn set_layer(&self, layer: Layer) {
         if let Some(wlr_layer_surface) = self.inner().wlr_layer_surface.borrow().as_ref() {
             wlr_layer_surface.set_layer(layer);
         };
+        self.inner().layer.set(layer);
+    }
+
+    pub fn namespace(&self) -> &str {
+        self.inner().namespace.as_str()
     }
 }
 

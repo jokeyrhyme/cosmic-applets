@@ -840,6 +840,7 @@ dependencies = [
  "byte_string",
  "cascade",
  "chrono",
+ "derivative",
  "gdk4-wayland",
  "gdk4-x11",
  "gobject-sys",
