@@ -13,7 +13,7 @@ use gtk4::{
     glib::{
         self, clone,
         subclass::prelude::*,
-        translate::{FromGlibPtrFull, ToGlibPtr},
+        translate::{FromGlibPtrFull, FromGlibPtrNone, ToGlibPtr},
     },
     gsk::{self, traits::RendererExt},
     prelude::*,
@@ -28,10 +28,12 @@ use std::{
 use wayland_client::{
     event_enum,
     protocol::{wl_display, wl_output},
-    Attached, Filter, GlobalManager, Main,
+    sys::client::wl_proxy,
+    Attached, Filter, GlobalManager, Main, Proxy,
 };
-use wayland_protocols::wlr::unstable::layer_shell::v1::client::{
-    zwlr_layer_shell_v1, zwlr_layer_surface_v1,
+use wayland_protocols::{
+    wlr::unstable::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1},
+    xdg_shell::client::xdg_popup,
 };
 
 use crate::deref_cell::DerefCell;
@@ -151,7 +153,9 @@ impl ObjectImpl for LayerShellWindowInner {
 
 impl WidgetImpl for LayerShellWindowInner {
     fn realize(&self, widget: &Self::Type) {
-        let surface = WaylandCustomSurface::new(&*self.display); // TODO
+        let surface = WaylandCustomSurface::new(&*self.display);
+        unsafe { surface.set_data("layer-shel-window", widget.clone()) }; // XXX
+        unsafe { gdk_wayland_custom_surface_set_get_popup(surface.to_glib_none().0, get_popup) };
         let display = self
             .display
             .downcast_ref::<gdk4_wayland::WaylandDisplay>()
@@ -386,6 +390,7 @@ impl LayerShellWindow {
         let margin = self.margin();
         wlr_layer_surface.set_margin(margin.0, margin.1, margin.2, margin.3);
         wlr_layer_surface.set_keyboard_interactivity(self.keyboard_interactivity());
+        wlr_layer_surface.set_size(1920, 33); // XXX
 
         let filter = Filter::new(
             clone!(@strong self as self_ => move |event, _, _| match event {
@@ -416,13 +421,6 @@ impl LayerShellWindow {
         // XXX
 
         Some(wlr_layer_surface)
-    }
-
-    fn get_popup(&self, popup: &gdk4_wayland::WaylandPopup) {
-        if let Some(wlr_layer_surface) = self.inner().wlr_layer_surface.borrow().as_ref() {
-            // xdg_popup = popup.get_xdg_popup(); XXX
-            //wlr_layer_surface.get_popup(xdg_popup);
-        }
     }
 
     /*
@@ -539,6 +537,18 @@ extern "C" {
         width: c_int,
         height: c_int,
     ) -> glib::ffi::gboolean;
+
+    pub fn gdk_wayland_custom_surface_set_get_popup(
+        surface: *mut GdkWaylandCustomSurface,
+        get_popup: unsafe extern "C" fn(
+            *mut GdkWaylandCustomSurface,
+            *mut gdk4_wayland::ffi::GdkWaylandPopup,
+        ) -> glib::ffi::gboolean,
+    );
+
+    pub fn gdk_wayland_popup_get_xdg_popup(
+        popup: *mut gdk4_wayland::ffi::GdkWaylandPopup,
+    ) -> *mut wl_proxy;
 }
 
 // XXX needs to be public in gtk
@@ -631,6 +641,26 @@ unsafe extern "C" fn get_constraint_solver(
     let instance = &*(root as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
     let imp = instance.impl_();
     imp.constraint_solver.to_glib_none().0
+}
+
+unsafe extern "C" fn get_popup(
+    custom_surface: *mut GdkWaylandCustomSurface,
+    popup: *mut gdk4_wayland::ffi::GdkWaylandPopup,
+) -> glib::ffi::gboolean {
+    let surface = WaylandCustomSurface::from_glib_none(custom_surface);
+    let window = unsafe {
+        surface
+            .data::<LayerShellWindow>("layer-shel-window")
+            .unwrap()
+            .as_ref()
+            .clone()
+    }; // XXX
+    if let Some(wlr_layer_surface) = window.inner().wlr_layer_surface.borrow().as_ref() {
+        let xdg_popup: xdg_popup::XdgPopup =
+            Proxy::from_c_ptr(gdk_wayland_popup_get_xdg_popup(popup)).into();
+        wlr_layer_surface.get_popup(&xdg_popup);
+    }
+    glib::ffi::GTRUE
 }
 
 glib::wrapper! {

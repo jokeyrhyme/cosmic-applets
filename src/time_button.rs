@@ -58,7 +58,7 @@ impl ObjectImpl for TimeButtonInner {
             ..append(&MprisControls::new());
         };
 
-        cascade! {
+        let x = cascade! {
             PopoverContainer::new(&button);
             ..set_parent(obj);
             ..popover().set_child(Some(&cascade! {
@@ -67,8 +67,17 @@ impl ObjectImpl for TimeButtonInner {
                 ..append(&calendar);
             }));
             ..popover().connect_show(clone!(@strong obj => move |_| obj.opening()));
-            ..popover().bind_property("visible", &button, "active").flags(glib::BindingFlags::BIDIRECTIONAL).build();
+            //..popover().bind_property("visible", &button, "active").flags(glib::BindingFlags::BIDIRECTIONAL).build();
         };
+
+        glib::idle_add_local(move || {
+            x.popover().show();
+            Continue(false)
+        });
+
+        button.connect_clicked(|_| {
+            println!("CLICK CLICK");
+        });
 
         self.calendar.set(calendar);
         self.button.set(button);
