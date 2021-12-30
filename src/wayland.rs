@@ -25,12 +25,7 @@ use std::{
     ptr,
     rc::Rc,
 };
-use wayland_client::{
-    event_enum,
-    protocol::{wl_display, wl_output},
-    sys::client::wl_proxy,
-    Attached, Filter, GlobalManager, Main, Proxy,
-};
+use wayland_client::{event_enum, sys::client::wl_proxy, Filter, GlobalManager, Main, Proxy};
 use wayland_protocols::{
     wlr::unstable::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1},
     xdg_shell::client::xdg_popup,
@@ -49,7 +44,6 @@ event_enum!(
 );
 
 struct CosmicWaylandDisplay {
-    attached_display: Attached<wl_display::WlDisplay>,
     event_queue: RefCell<wayland_client::EventQueue>,
     wayland_display: wayland_client::Display,
     wlr_layer_shell: Option<Main<zwlr_layer_shell_v1::ZwlrLayerShellV1>>,
@@ -80,14 +74,7 @@ impl CosmicWaylandDisplay {
             .instantiate_exact::<zwlr_layer_shell_v1::ZwlrLayerShellV1>(1)
             .ok();
 
-        let wl_seat = globals
-            .instantiate_exact::<wayland_client::protocol::wl_seat::WlSeat>(1)
-            .ok()
-            .unwrap();
-        let wl_pointer = wl_seat.get_pointer();
-
         let cosmic_wayland_display = Rc::new(Self {
-            attached_display,
             event_queue: RefCell::new(event_queue),
             wayland_display,
             wlr_layer_shell,
@@ -166,8 +153,7 @@ impl WidgetImpl for LayerShellWindowInner {
         let surface_ptr: *mut _ = surface.to_glib_none().0;
         unsafe { gdk_surface_set_widget(surface_ptr as *mut _, widget_ptr as *mut _) };
         *self.surface.borrow_mut() = Some(surface.clone());
-        surface.connect_render(move |surface, region| {
-            println!("RENDER");
+        surface.connect_render(move |_surface, region| {
             unsafe {
                 gtk_widget_render(
                     widget_ptr as *mut _,
@@ -254,7 +240,7 @@ impl WidgetImpl for LayerShellWindowInner {
 
     fn measure(
         &self,
-        widget: &Self::Type,
+        _widget: &Self::Type,
         orientation: gtk4::Orientation,
         for_size: i32,
     ) -> (i32, i32, i32, i32) {
@@ -265,26 +251,17 @@ impl WidgetImpl for LayerShellWindowInner {
         }
     }
 
-    fn size_allocate(&self, widget: &Self::Type, width: i32, height: i32, baseline: i32) {
+    fn size_allocate(&self, _widget: &Self::Type, width: i32, height: i32, baseline: i32) {
         if let Some(child) = self.child.borrow().as_ref() {
             child.allocate(width, height, baseline, None)
         }
     }
 
     fn show(&self, widget: &Self::Type) {
-        let widget_ptr: *mut Self::Instance = widget.to_glib_none().0;
         // XXX unsafe { _gtk_widget_set_visible_flag(widget_ptr as *mut _, 1) };
         // TODO? gtk_css_node_validate
         widget.realize();
-        if let Some(surface) = self.surface.borrow().as_ref() {
-            /*
-            let layout = gdk::ToplevelLayout::new(); // XXX?
-            surface
-                .downcast_ref::<gdk::Toplevel>()
-                .unwrap()
-                .present(&layout); // TODO not toplevel
-            */
-        }
+        //TODO: present surface?
         self.parent_show(widget);
         widget.map();
     }
@@ -604,7 +581,7 @@ unsafe extern "C" fn get_renderer(native: *mut gtk4::ffi::GtkNative) -> *mut gsk
 }
 
 unsafe extern "C" fn get_surface_transform(
-    native: *mut gtk4::ffi::GtkNative,
+    _native: *mut gtk4::ffi::GtkNative,
     x: *mut f64,
     y: *mut f64,
 ) {
@@ -648,13 +625,11 @@ unsafe extern "C" fn get_popup(
     popup: *mut gdk4_wayland::ffi::GdkWaylandPopup,
 ) -> glib::ffi::gboolean {
     let surface = WaylandCustomSurface::from_glib_none(custom_surface);
-    let window = unsafe {
-        surface
-            .data::<LayerShellWindow>("layer-shel-window")
-            .unwrap()
-            .as_ref()
-            .clone()
-    }; // XXX
+    let window = surface
+        .data::<LayerShellWindow>("layer-shel-window")
+        .unwrap()
+        .as_ref()
+        .clone(); // XXX
     if let Some(wlr_layer_surface) = window.inner().wlr_layer_surface.borrow().as_ref() {
         let xdg_popup: xdg_popup::XdgPopup =
             Proxy::from_c_ptr(gdk_wayland_popup_get_xdg_popup(popup)).into();
