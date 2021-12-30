@@ -119,6 +119,7 @@ pub struct LayerShellWindowInner {
     #[derivative(Default(value = "Cell::new(KeyboardInteractivity::None)"))]
     keyboard_interactivity: Cell<KeyboardInteractivity>,
     namespace: DerefCell<String>,
+    focus_widget: RefCell<Option<gtk4::Widget>>,
 }
 
 #[glib::object_subclass]
@@ -293,7 +294,8 @@ unsafe impl IsImplementable<LayerShellWindowInner> for gtk4::Root {
         let iface = unsafe { &mut *(iface as *mut _ as *mut GtkRootInterface) };
         iface.get_display = Some(get_display);
         iface.get_constraint_solver = Some(get_constraint_solver);
-        // XXX?
+        iface.get_focus = Some(get_focus);
+        iface.set_focus = Some(set_focus);
     }
 
     fn instance_init(_instance: &mut glib::subclass::InitializingObject<LayerShellWindowInner>) {}
@@ -618,6 +620,26 @@ unsafe extern "C" fn get_constraint_solver(
     let instance = &*(root as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
     let imp = instance.impl_();
     imp.constraint_solver.to_glib_none().0
+}
+
+unsafe extern "C" fn get_focus(root: *mut gtk4::ffi::GtkRoot) -> *mut gtk4::ffi::GtkWidget {
+    let instance = &*(root as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
+    let imp = instance.impl_();
+    imp.focus_widget
+        .borrow()
+        .as_ref()
+        .map_or(ptr::null_mut(), |x| x.to_glib_none().0)
+}
+
+unsafe extern "C" fn set_focus(root: *mut gtk4::ffi::GtkRoot, focus: *mut gtk4::ffi::GtkWidget) {
+    // TODO: more?
+    let instance = &*(root as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
+    let imp = instance.impl_();
+    *imp.focus_widget.borrow_mut() = if focus.is_null() {
+        None
+    } else {
+        Some(gtk4::Widget::from_glib_none(focus))
+    };
 }
 
 unsafe extern "C" fn get_popup(
