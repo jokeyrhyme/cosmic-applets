@@ -10,11 +10,7 @@ use derivative::Derivative;
 use gdk4_wayland::prelude::*;
 use gtk4::{
     cairo, gdk,
-    glib::{
-        self, clone,
-        subclass::prelude::*,
-        translate::{FromGlibPtrFull, FromGlibPtrNone, ToGlibPtr},
-    },
+    glib::{self, clone, subclass::prelude::*, translate::*},
     gsk::{self, traits::RendererExt},
     prelude::*,
     subclass::prelude::*,
@@ -31,7 +27,7 @@ use wayland_protocols::{
     xdg_shell::client::xdg_popup,
 };
 
-use crate::deref_cell::DerefCell;
+use crate::{deref_cell::DerefCell, wayland_custom_surface::WaylandCustomSurface};
 
 pub use wayland_protocols::wlr::unstable::layer_shell::v1::client::{
     zwlr_layer_shell_v1::Layer,
@@ -142,8 +138,14 @@ impl ObjectImpl for LayerShellWindowInner {
 impl WidgetImpl for LayerShellWindowInner {
     fn realize(&self, widget: &Self::Type) {
         let surface = WaylandCustomSurface::new(&*self.display);
-        unsafe { surface.set_data("layer-shel-window", widget.clone()) }; // XXX
-        unsafe { gdk_wayland_custom_surface_set_get_popup(surface.to_glib_none().0, get_popup) };
+        surface.set_get_popup_func(Some(Box::new(clone!(@strong widget => move |_surface, popup| {
+            if let Some(wlr_layer_surface) = widget.inner().wlr_layer_surface.borrow().as_ref() {
+                let xdg_popup: xdg_popup::XdgPopup =
+                    unsafe { Proxy::from_c_ptr(gdk_wayland_popup_get_xdg_popup(popup.to_glib_none().0)).into() };
+                wlr_layer_surface.get_popup(&xdg_popup);
+            }
+            true
+        }))));
         let display = self
             .display
             .downcast_ref::<gdk4_wayland::WaylandDisplay>()
@@ -470,17 +472,7 @@ impl LayerShellWindow {
     }
 }
 
-// Comment on gtk-layer-shell: Since the API would be different, and I'd need to wrap the C library
-// to use in my project, and it shouldn't require to much code, re-implemented to test this
-
-// TODO: where is GtkRoot used?
-
 pub struct GtkConstraintSolver {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-pub struct GdkWaylandCustomSurface {
     _private: [u8; 0],
 }
 
@@ -506,25 +498,7 @@ extern "C" {
 
     pub fn gtk_main_do_event(event: *mut gdk::ffi::GdkEvent);
 
-    pub fn _gdk_frame_clock_idle_new() -> *mut gdk::ffi::GdkFrameClock;
-
     // Added API
-    pub fn gdk_wayland_custom_surface_get_type() -> glib::ffi::GType;
-
-    pub fn gdk_wayland_custom_surface_present(
-        surface: *mut GdkWaylandCustomSurface,
-        width: c_int,
-        height: c_int,
-    ) -> glib::ffi::gboolean;
-
-    pub fn gdk_wayland_custom_surface_set_get_popup(
-        surface: *mut GdkWaylandCustomSurface,
-        get_popup: unsafe extern "C" fn(
-            *mut GdkWaylandCustomSurface,
-            *mut gdk4_wayland::ffi::GdkWaylandPopup,
-        ) -> glib::ffi::gboolean,
-    );
-
     pub fn gdk_wayland_popup_get_xdg_popup(
         popup: *mut gdk4_wayland::ffi::GdkWaylandPopup,
     ) -> *mut wl_proxy;
@@ -640,42 +614,4 @@ unsafe extern "C" fn set_focus(root: *mut gtk4::ffi::GtkRoot, focus: *mut gtk4::
     } else {
         Some(gtk4::Widget::from_glib_none(focus))
     };
-}
-
-unsafe extern "C" fn get_popup(
-    custom_surface: *mut GdkWaylandCustomSurface,
-    popup: *mut gdk4_wayland::ffi::GdkWaylandPopup,
-) -> glib::ffi::gboolean {
-    let surface = WaylandCustomSurface::from_glib_none(custom_surface);
-    let window = surface
-        .data::<LayerShellWindow>("layer-shel-window")
-        .unwrap()
-        .as_ref()
-        .clone(); // XXX
-    if let Some(wlr_layer_surface) = window.inner().wlr_layer_surface.borrow().as_ref() {
-        let xdg_popup: xdg_popup::XdgPopup =
-            Proxy::from_c_ptr(gdk_wayland_popup_get_xdg_popup(popup)).into();
-        wlr_layer_surface.get_popup(&xdg_popup);
-    }
-    glib::ffi::GTRUE
-}
-
-glib::wrapper! {
-    pub struct WaylandCustomSurface(Object<GdkWaylandCustomSurface>)
-        @extends gdk4_wayland::WaylandSurface, @implements gdk::Surface;
-
-    match fn {
-        type_ => || gdk_wayland_custom_surface_get_type(),
-    }
-}
-
-impl WaylandCustomSurface {
-    pub fn new(display: &gdk::Display) -> Self {
-        let frame_clock = unsafe { gdk::FrameClock::from_glib_full(_gdk_frame_clock_idle_new()) };
-        glib::Object::new(&[("display", display), ("frame-clock", &frame_clock)]).unwrap()
-    }
-
-    fn present(&self, width: i32, height: i32) {
-        unsafe { gdk_wayland_custom_surface_present(self.to_glib_none().0, width, height) };
-    }
 }

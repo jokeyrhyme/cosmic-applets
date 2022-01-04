@@ -14,6 +14,7 @@ mod status_menu;
 mod status_notifier_watcher;
 mod time_button;
 mod wayland;
+mod wayland_custom_surface;
 mod window;
 mod x;
 
