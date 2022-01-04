@@ -46,7 +46,7 @@ mod ffi {
             custom_surface: *mut GdkWaylandCustomSurface,
             width: c_int,
             height: c_int,
-        ) -> gboolean;
+        );
 
         pub fn gdk_wayland_custom_surface_set_get_popup_func(
             custom_surface: *mut GdkWaylandCustomSurface,
@@ -79,13 +79,13 @@ impl WaylandCustomSurface {
     }
 
     #[doc(alias = "gdk_wayland_custom_surface_present")]
-    pub fn present(&self, width: i32, height: i32) -> bool {
+    pub fn present(&self, width: i32, height: i32) {
         unsafe {
-            from_glib(ffi::gdk_wayland_custom_surface_present(
+            ffi::gdk_wayland_custom_surface_present(
                 self.to_glib_none().0,
                 width,
                 height,
-            ))
+            );
         }
     }
 
