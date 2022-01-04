@@ -99,7 +99,7 @@ impl CosmicWaylandDisplay {
 #[derive(Derivative)]
 #[derivative(Default)]
 pub struct LayerShellWindowInner {
-    display: DerefCell<gdk::Display>,
+    display: DerefCell<gdk4_wayland::WaylandDisplay>,
     surface: RefCell<Option<WaylandCustomSurface>>,
     renderer: RefCell<Option<gsk::Renderer>>,
     wlr_layer_surface: RefCell<Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>>>, // TODO: set
@@ -128,7 +128,8 @@ impl ObjectSubclass for LayerShellWindowInner {
 
 impl ObjectImpl for LayerShellWindowInner {
     fn constructed(&self, obj: &Self::Type) {
-        self.display.set(gdk::Display::default().unwrap()); // XXX any issue unwrapping?
+        self.display
+            .set(gdk::Display::default().unwrap().downcast().unwrap()); // XXX any issue unwrapping?
         self.constraint_solver.set(glib::Object::new(&[]).unwrap());
 
         obj.add_css_class("background");
@@ -585,7 +586,7 @@ unsafe extern "C" fn layout(native: *mut gtk4::ffi::GtkNative, width: c_int, hei
 unsafe extern "C" fn get_display(root: *mut gtk4::ffi::GtkRoot) -> *mut gdk::ffi::GdkDisplay {
     let instance = &*(root as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
     let imp = instance.impl_();
-    imp.display.to_glib_none().0
+    imp.display.upcast_ref::<gdk::Display>().to_glib_none().0
 }
 
 unsafe extern "C" fn get_constraint_solver(

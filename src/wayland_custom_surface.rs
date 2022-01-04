@@ -1,4 +1,4 @@
-use gdk4_wayland::WaylandPopup;
+use gdk4_wayland::{WaylandDisplay, WaylandPopup};
 use gtk4::{
     gdk,
     glib::{self, translate::*},
@@ -7,7 +7,7 @@ use std::boxed::Box as Box_;
 use std::fmt;
 
 mod ffi {
-    use gdk4_wayland::ffi::GdkWaylandPopup;
+    use gdk4_wayland::ffi::{GdkWaylandDisplay, GdkWaylandPopup};
     use gtk4::{
         gdk::ffi::GdkFrameClock,
         glib::ffi::{gboolean, gpointer, GDestroyNotify, GType},
@@ -38,6 +38,10 @@ mod ffi {
     extern "C" {
         pub fn gdk_wayland_custom_surface_get_type() -> GType;
 
+        pub fn gdk_wayland_custom_surface_new(
+            display: *mut GdkWaylandDisplay,
+        ) -> *mut GdkWaylandCustomSurface;
+
         pub fn gdk_wayland_custom_surface_present(
             custom_surface: *mut GdkWaylandCustomSurface,
             width: c_int,
@@ -65,11 +69,13 @@ glib::wrapper! {
 }
 
 impl WaylandCustomSurface {
-    // TODO: Include in C API?
-    pub fn new(display: &gdk::Display) -> Self {
-        let frame_clock =
-            unsafe { gdk::FrameClock::from_glib_full(ffi::_gdk_frame_clock_idle_new()) };
-        glib::Object::new(&[("display", display), ("frame-clock", &frame_clock)]).unwrap()
+    #[doc(alias = "gdk_wayland_custom_surface_new")]
+    pub fn new(display: &WaylandDisplay) -> WaylandCustomSurface {
+        unsafe {
+            from_glib_full(ffi::gdk_wayland_custom_surface_new(
+                display.to_glib_none().0,
+            ))
+        }
     }
 
     #[doc(alias = "gdk_wayland_custom_surface_present")]
