@@ -1,9 +1,5 @@
 // TODO
-// - handle EventQueue in glib main loop
 // - correctly handle size allocation
-// - get popup creation working
-// - input events
-// - cache setting property before realize
 // - scale-factor
 
 use derivative::Derivative;
@@ -217,6 +213,7 @@ impl WidgetImpl for LayerShellWindowInner {
         if let Some(surface) = self.surface.borrow().as_ref() {
             let width = widget.measure(gtk4::Orientation::Horizontal, -1).1;
             let height = widget.measure(gtk4::Orientation::Vertical, width).1;
+            widget.set_size(width as u32, height as u32);
             surface.present(width, height);
         }
 
@@ -372,7 +369,7 @@ impl LayerShellWindow {
         let margin = self.margin();
         wlr_layer_surface.set_margin(margin.0, margin.1, margin.2, margin.3);
         wlr_layer_surface.set_keyboard_interactivity(self.keyboard_interactivity());
-        wlr_layer_surface.set_size(1920, 33); // XXX
+        wlr_layer_surface.set_size(width as u32, height as u32);
 
         let filter = Filter::new(
             clone!(@strong self as self_ => move |event, _, _| match event {
@@ -405,13 +402,11 @@ impl LayerShellWindow {
         Some(wlr_layer_surface)
     }
 
-    /*
-    pub fn set_size(&self, width: u32, height: u32) {
+    fn set_size(&self, width: u32, height: u32) {
         if let Some(wlr_layer_surface) = self.inner().wlr_layer_surface.borrow().as_ref() {
             wlr_layer_surface.set_size(width, height);
         };
     }
-    */
 
     pub fn anchor(&self) -> Anchor {
         self.inner().anchor.get()

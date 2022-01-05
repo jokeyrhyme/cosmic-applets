@@ -81,11 +81,7 @@ impl WaylandCustomSurface {
     #[doc(alias = "gdk_wayland_custom_surface_present")]
     pub fn present(&self, width: i32, height: i32) {
         unsafe {
-            ffi::gdk_wayland_custom_surface_present(
-                self.to_glib_none().0,
-                width,
-                height,
-            );
+            ffi::gdk_wayland_custom_surface_present(self.to_glib_none().0, width, height);
         }
     }
 
