@@ -1,6 +1,4 @@
-// TODO
-// - correctly handle size allocation
-// - scale-factor
+// TODO: scale-factor?
 
 use derivative::Derivative;
 use gdk4_wayland::prelude::*;
@@ -54,7 +52,7 @@ impl CosmicWaylandDisplay {
             wayland_client::Display::from_external_display(
                 display.wl_display().as_ref().c_ptr() as *mut _
             )
-        }; // XXX?
+        }; // XXX is this sound?
 
         let mut event_queue = wayland_display.create_event_queue();
         let attached_display = wayland_display.attach(event_queue.token());
@@ -74,31 +72,31 @@ impl CosmicWaylandDisplay {
 
         unsafe { display.set_data(DATA_KEY, cosmic_wayland_display.clone()) };
 
-        // XXX efficiency?
-        // XXX strong?
+        // XXX Efficient way to poll?
         // XXX unwrap?
-        glib::idle_add_local(clone!(@strong cosmic_wayland_display => move || {
-            cosmic_wayland_display.wayland_display.flush().unwrap();
-            let mut event_queue = cosmic_wayland_display.event_queue.borrow_mut();
-            if let Some(guard) = event_queue.prepare_read() {
-                guard.read_events().unwrap();
-            }
-            event_queue.dispatch_pending(&mut (), |_, _, _| {}).unwrap();
-            Continue(true)
-        }));
+        glib::idle_add_local(
+            clone!(@weak cosmic_wayland_display => @default-return Continue(false), move || {
+                cosmic_wayland_display.wayland_display.flush().unwrap();
+                let mut event_queue = cosmic_wayland_display.event_queue.borrow_mut();
+                if let Some(guard) = event_queue.prepare_read() {
+                    guard.read_events().unwrap();
+                }
+                event_queue.dispatch_pending(&mut (), |_, _, _| {}).unwrap();
+                Continue(true)
+            }),
+        );
 
         cosmic_wayland_display
     }
 }
 
-// TODO: store properties, set when mapping?
 #[derive(Derivative)]
 #[derivative(Default)]
 pub struct LayerShellWindowInner {
     display: DerefCell<gdk4_wayland::WaylandDisplay>,
     surface: RefCell<Option<WaylandCustomSurface>>,
     renderer: RefCell<Option<gsk::Renderer>>,
-    wlr_layer_surface: RefCell<Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>>>, // TODO: set
+    wlr_layer_surface: RefCell<Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>>>,
     constraint_solver: DerefCell<ConstraintSolver>,
     child: RefCell<Option<gtk4::Widget>>,
     monitor: DerefCell<Option<gdk4_wayland::WaylandMonitor>>,
@@ -143,11 +141,7 @@ impl WidgetImpl for LayerShellWindowInner {
             }
             true
         }))));
-        let display = self
-            .display
-            .downcast_ref::<gdk4_wayland::WaylandDisplay>()
-            .unwrap();
-        *self.wlr_layer_surface.borrow_mut() = widget.layer_shell_init(&surface, display);
+        widget.layer_shell_init(&surface);
 
         let widget_ptr: *mut _ = widget.to_glib_none().0;
         let surface_ptr: *mut _ = surface.to_glib_none().0;
@@ -167,19 +161,6 @@ impl WidgetImpl for LayerShellWindowInner {
             unsafe { gtk_main_do_event(event.to_glib_none().0) };
             true
         });
-        /*
-        let toplevel = surface.downcast_ref::<gdk::Toplevel>().unwrap(); // XXX
-        toplevel.connect_compute_size(move |toplevel, size| {
-            // XXX
-            size.set_min_size(500, 500);
-            size.set_size(500, 500);
-            unsafe { gtk_widget_ensure_resize(widget_ptr as *mut _); }
-        });
-        */
-        // XXX
-        unsafe {
-            gtk_widget_ensure_resize(widget_ptr as *mut _);
-        }
 
         self.parent_realize(widget);
 
@@ -204,12 +185,9 @@ impl WidgetImpl for LayerShellWindowInner {
             let surface_ptr: *mut _ = surface.to_glib_none().0;
             unsafe { gdk_surface_set_widget(surface_ptr as *mut _, ptr::null_mut()) };
         }
-        // XXX
     }
 
     fn map(&self, widget: &Self::Type) {
-        // TODO: what does `gtk_drag_icon_move_resize` do?
-
         if let Some(surface) = self.surface.borrow().as_ref() {
             let width = widget.measure(gtk4::Orientation::Horizontal, -1).1;
             let height = widget.measure(gtk4::Orientation::Vertical, width).1;
@@ -222,8 +200,6 @@ impl WidgetImpl for LayerShellWindowInner {
         if let Some(child) = self.child.borrow().as_ref() {
             child.map();
         }
-
-        // XXX
     }
 
     fn unmap(&self, widget: &Self::Type) {
@@ -236,7 +212,6 @@ impl WidgetImpl for LayerShellWindowInner {
         if let Some(child) = self.child.borrow().as_ref() {
             child.unmap();
         }
-        // XXX
     }
 
     fn measure(
@@ -259,17 +234,12 @@ impl WidgetImpl for LayerShellWindowInner {
     }
 
     fn show(&self, widget: &Self::Type) {
-        // XXX unsafe { _gtk_widget_set_visible_flag(widget_ptr as *mut _, 1) };
-        // TODO? gtk_css_node_validate
         widget.realize();
-        //TODO: present surface?
         self.parent_show(widget);
         widget.map();
     }
 
     fn hide(&self, widget: &Self::Type) {
-        //let widget_ptr: *mut Self::Instance = widget.to_glib_none().0;
-        // XXX unsafe { _gtk_widget_set_visible_flag(widget_ptr as *mut _, 0) };
         self.parent_hide(widget);
         widget.unmap();
     }
@@ -336,12 +306,7 @@ impl LayerShellWindow {
         *child = w.map(|x| x.clone().upcast());
     }
 
-    fn layer_shell_init(
-        &self,
-        surface: &WaylandCustomSurface,
-        display: &gdk4_wayland::WaylandDisplay,
-    ) -> Option<Main<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1>> {
-        // TODO update
+    fn layer_shell_init(&self, surface: &WaylandCustomSurface) {
         let width = self.measure(gtk4::Orientation::Horizontal, -1).1;
         let height = self.measure(gtk4::Orientation::Vertical, width).1;
         // XXX needed for wl_surface to exist
@@ -349,12 +314,12 @@ impl LayerShellWindow {
 
         let wl_surface = surface.wl_surface();
 
-        let cosmic_wayland_display = CosmicWaylandDisplay::for_display(display);
+        let cosmic_wayland_display = CosmicWaylandDisplay::for_display(&*self.inner().display);
         let wlr_layer_shell = match cosmic_wayland_display.wlr_layer_shell.as_ref() {
             Some(wlr_layer_shell) => wlr_layer_shell,
             None => {
                 eprintln!("Error: Layer shell not supported by compositor");
-                return None;
+                return;
             }
         };
 
@@ -376,10 +341,10 @@ impl LayerShellWindow {
                 Events::LayerSurface { event, object } => match event {
                     zwlr_layer_surface_v1::Event::Configure {
                         serial,
-                        width,
-                        height,
+                        width: _,
+                        height: _,
                     } => {
-                        println!("ack_configure: {}, {}", width, height);
+                        // TODO: should size window to match `width`/`height`
                         object.ack_configure(serial);
                     }
                     zwlr_layer_surface_v1::Event::Closed => {}
@@ -389,7 +354,7 @@ impl LayerShellWindow {
         );
         wlr_layer_surface.assign(filter);
 
-        wl_surface.commit(); // Hm...
+        wl_surface.commit();
 
         cosmic_wayland_display
             .event_queue
@@ -397,9 +362,7 @@ impl LayerShellWindow {
             .sync_roundtrip(&mut (), |_, _, _| {})
             .unwrap();
 
-        // XXX
-
-        Some(wlr_layer_surface)
+        *self.inner().wlr_layer_surface.borrow_mut() = Some(wlr_layer_surface);
     }
 
     fn set_size(&self, width: u32, height: u32) {
@@ -472,7 +435,7 @@ pub struct GtkConstraintSolver {
     _private: [u8; 0],
 }
 
-// XXX needs to be public
+// XXX needs to be public in gtk
 #[link(name = "gtk-4")]
 extern "C" {
     pub fn gtk_constraint_solver_get_type() -> glib::ffi::GType;
@@ -490,8 +453,6 @@ extern "C" {
         region: *const cairo::ffi::cairo_region_t,
     );
 
-    pub fn gtk_widget_ensure_resize(widget: *mut gtk4::ffi::GtkWidget);
-
     pub fn gtk_main_do_event(event: *mut gdk::ffi::GdkEvent);
 
     // Added API
@@ -500,7 +461,6 @@ extern "C" {
     ) -> *mut wl_proxy;
 }
 
-// XXX needs to be public in gtk
 glib::wrapper! {
     pub struct ConstraintSolver(Object<GtkConstraintSolver>);
 
@@ -557,24 +517,14 @@ unsafe extern "C" fn get_surface_transform(
     x: *mut f64,
     y: *mut f64,
 ) {
-    // XXX
-
-    /*
-    let mut css_boxes = gtk4::ffi::GtkCssBoxes;
-    gtk4::ffi::gtk_css_boxes_init(&mut css_boxes, native as *mut _);
-
-    let margin_rect = gtk4::ffi::gtk_css_boxes_get_margin_rect(&mut css_boxes);
-
-    *x = - (*margin_rect).origin.x;
-    *y = - (*margin_rect).origin.y;
-    */
+    // TODO: add css logic like `GtkWindow` has
 
     *x = 0.;
     *y = 0.;
 }
 
 unsafe extern "C" fn layout(native: *mut gtk4::ffi::GtkNative, width: c_int, height: c_int) {
-    // XXX
+    // TODO: `GtkWindow` has more here
     gtk4::ffi::gtk_widget_allocate(native as *mut _, width, height, -1, ptr::null_mut());
 }
 
@@ -602,7 +552,7 @@ unsafe extern "C" fn get_focus(root: *mut gtk4::ffi::GtkRoot) -> *mut gtk4::ffi:
 }
 
 unsafe extern "C" fn set_focus(root: *mut gtk4::ffi::GtkRoot, focus: *mut gtk4::ffi::GtkWidget) {
-    // TODO: more?
+    // TODO: `GtkWindow` does more here
     let instance = &*(root as *mut <LayerShellWindowInner as ObjectSubclass>::Instance);
     let imp = instance.impl_();
     *imp.focus_widget.borrow_mut() = if focus.is_null() {
