@@ -7,33 +7,47 @@ use crate::application::PanelApp;
 use crate::deref_cell::DerefCell;
 use crate::status_area::StatusArea;
 use crate::time_button::TimeButton;
-use crate::wayland::{self, Layer};
 use crate::x;
 
 const BOTTOM: bool = false;
 
 pub fn create(app: &PanelApp, monitor: gdk::Monitor) {
-    /*
+    #[cfg(feature = "layer-shell")]
+    if let Some(wayland_monitor) = monitor.downcast_ref() {
+        wayland_create(app, wayland_monitor);
+        return;
+    }
+
     cascade! {
         PanelWindow::new(app, monitor);
         ..show();
     };
-    */
+}
 
-    let window =
-        wayland::LayerShellWindow::new(Some(monitor.downcast_ref().unwrap()), Layer::Top, "");
+#[cfg(feature = "layer-shell")]
+fn wayland_create(app: &PanelApp, monitor: &gdk4_wayland::WaylandMonitor) {
+    use crate::wayland::{Anchor, Layer, LayerShellWindow};
+
+    let window = LayerShellWindow::new(Some(monitor), Layer::Top, "");
+
+    window.connect_realize(|window| {
+        let surface = window.surface().unwrap();
+        surface.connect_layout(clone!(@weak window => move |_surface, _width, height| {
+            window.set_exclusive_zone(height);
+        }));
+    });
+
     window.set_child(Some(&window_box(app)));
     window.set_size_request(monitor.geometry().width, 0);
-    window.set_anchor(wayland::Anchor::Top); // TODO: how to handle centering?
-    window.set_exclusive_zone(33); // XXX
+    window.set_anchor(if BOTTOM { Anchor::Bottom } else { Anchor::Top });
     window.show();
 
     // XXX
-    std::mem::forget(app.hold());
-    std::mem::forget(window);
+    unsafe { window.set_data("cosmic-app-hold", app.hold()) };
 }
 
-// XXX
+// XXX better handle duplication
+#[cfg(feature = "layer-shell")]
 fn window_box(app: &PanelApp) -> gtk4::Widget {
     let widget = cascade! {
         gtk4::CenterBox::new();
