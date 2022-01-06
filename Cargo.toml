@@ -9,6 +9,7 @@ cascade = "1"
 chrono = "0.4"
 byte_string = "1"
 derivative = "2"
+futures = "0.3"
 futures-channel = "0.3"
 gdk4-x11 = "0.3"
 gdk4-wayland = { version = "0.3", optional = true }

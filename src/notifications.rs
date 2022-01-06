@@ -299,6 +299,13 @@ impl Notifications {
                 .build()
                 .await
                 .unwrap();
+            let dbus_proxy = zbus::fdo::DBusProxy::new(&connection).await.unwrap();
+            use futures::prelude::*;
+            if let Some(evt) = dbus_proxy.receive_name_owner_changed().await.unwrap().next().await {
+                let args = evt.args().unwrap();
+                if args.name() == "" && args.new_owner().is_none() {
+                }
+            }
             let _ = notifications.inner().connection.set(connection);
         }));
 
