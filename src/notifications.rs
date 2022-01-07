@@ -17,6 +17,8 @@ use std::{
 use zbus::{dbus_interface, ConnectionBuilder, Result, SignalContext};
 use zvariant::OwnedValue;
 
+use crate::dbus_service;
+
 static PATH: &str = "/org/freedesktop/Notifications";
 static INTERFACE: &str = "org.freedesktop.Notifications";
 
@@ -121,7 +123,7 @@ impl NotificationsInterface {
     async fn NotificationClosed(ctxt: &SignalContext<'_>, id: u32, reason: u32) -> Result<()>;
 
     #[dbus_interface(signal)]
-    async fn ActionInvoked(ctxt: &SignalContext<'_>, id: u32, action_key: String) -> Result<()>;
+    async fn ActionInvoked(ctxt: &SignalContext<'_>, id: u32, action_key: &str) -> Result<()>;
 }
 
 #[derive(Default)]
@@ -289,24 +291,9 @@ impl Notifications {
         let notifications = glib::Object::new::<Self>(&[]).unwrap();
 
         glib::MainContext::default().spawn_local(clone!(@strong notifications => async move {
-            // XXX unwrap?
-            let connection = ConnectionBuilder::session()
-                .unwrap()
-                .name(INTERFACE)
-                .unwrap()
-                .serve_at(PATH, notifications.inner().interface.clone())
-                .unwrap()
-                .build()
-                .await
-                .unwrap();
-            let dbus_proxy = zbus::fdo::DBusProxy::new(&connection).await.unwrap();
-            use futures::prelude::*;
-            if let Some(evt) = dbus_proxy.receive_name_owner_changed().await.unwrap().next().await {
-                let args = evt.args().unwrap();
-                if args.name() == "" && args.new_owner().is_none() {
-                }
-            }
-            let _ = notifications.inner().connection.set(connection);
+            // XXX unwrap
+            let connection = dbus_service::create(INTERFACE, |builder| builder.serve_at(PATH, notifications.inner().interface.clone())).await.unwrap();
+            let _ = notifications.inner().connection.set(connection.clone());
         }));
 
         notifications
@@ -331,21 +318,6 @@ impl Notifications {
             let ctxt = SignalContext::new(connection, PATH).unwrap(); // XXX unwrap?
             NotificationsInterface::NotificationClosed(&ctxt, id.into(), reason as u32).await;
         }
-
-        //Self::NotificationClosed(id, reason).await;
-        /* XXX SIGNAL
-        if let Some(connection) = self.inner().connection.borrow().as_ref() {
-            connection
-                .emit_signal(
-                    None,
-                    PATH,
-                    INTERFACE,
-                    "CloseNotification",
-                    Some(&(id, &(reason as u32)).to_variant()),
-                )
-                .unwrap();
-        }
-        */
     }
 
     pub fn dismiss(&self, id: NotificationId) {
@@ -354,20 +326,11 @@ impl Notifications {
         }));
     }
 
-    pub fn invoke_action(&self, id: NotificationId, action_key: &str) {
-        /* XXX SIGNAL
-        if let Some(connection) = self.inner().connection.borrow().as_ref() {
-            connection
-                .emit_signal(
-                    None,
-                    PATH,
-                    INTERFACE,
-                    "ActionInvoked",
-                    Some(&(&(id, action_key),).to_variant()),
-                )
-                .unwrap();
+    pub async fn invoke_action(&self, id: NotificationId, action_key: &str) {
+        if let Some(connection) = self.inner().connection.get() {
+            let ctxt = SignalContext::new(connection, PATH).unwrap(); // XXX unwrap?
+            NotificationsInterface::ActionInvoked(&ctxt, id.into(), action_key).await;
         }
-        */
     }
 
     pub fn get(&self, id: NotificationId) -> Option<Arc<Notification>> {

@@ -1,6 +1,7 @@
 use gtk4::{glib, prelude::*};
 
 mod application;
+mod dbus_service;
 mod deref_cell;
 mod mpris;
 mod mpris_player;

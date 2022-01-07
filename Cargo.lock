@@ -1307,6 +1307,7 @@ dependencies = [
  "cascade",
  "chrono",
  "derivative",
+ "enumflags2",
  "futures",
  "futures-channel",
  "gdk4-wayland",
@@ -1318,6 +1319,7 @@ dependencies = [
  "toml",
  "x11",
  "zbus",
+ "zbus_names",
  "zvariant",
 ]
 
