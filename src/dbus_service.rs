@@ -22,19 +22,17 @@ pub async fn create<
 
     glib::MainContext::default().spawn_local(clone!(@strong connection => async move {
         let have_bus_name = Cell::new(false);
-        let request_name = || async {
-            let flags = RequestNameFlags::AllowReplacement.into();
-            match dbus_proxy.request_name(well_known_name.as_ref(), flags).await {
-                Ok(zbus::fdo::RequestNameReply::InQueue) => {
-                    eprintln!("Bus name '{}' already owned", well_known_name);
-                }
-                Ok(_) => { _ }
-                Err(err) => {
-                    eprintln!("Failed to claim bus name '{}': {}", well_known_name, err);
-                }
+        let flags = RequestNameFlags::AllowReplacement.into();
+        match dbus_proxy.request_name(well_known_name.as_ref(), flags).await {
+            Ok(zbus::fdo::RequestNameReply::InQueue) => {
+                eprintln!("Bus name '{}' already owned", well_known_name);
             }
-        };
-        request_name().await;
+            Ok(_) => {}
+            Err(err) => {
+                eprintln!("Failed to claim bus name '{}': {}", well_known_name, err);
+            }
+        }
+
         let unique_name = connection.unique_name().map(|x| x.as_ref());
         while let Some(evt) = name_owner_changed_stream.next().await {
             let args = evt.args().unwrap();
@@ -45,10 +43,6 @@ pub async fn create<
                 } else if have_bus_name.get() {
                     eprintln!("Lost bus name: {}", well_known_name);
                     have_bus_name.set(false);
-                }
-
-                if args.new_owner().is_none() {
-                    request_name().await;
                 }
             }
         }
