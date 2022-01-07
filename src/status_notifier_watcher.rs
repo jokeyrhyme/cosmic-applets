@@ -3,6 +3,8 @@
 use std::sync::{Arc, Mutex};
 use zbus::{dbus_interface, ConnectionBuilder, MessageHeader, Result, SignalContext};
 
+use crate::dbus_service;
+
 #[derive(Default)]
 struct StatusNotifierWatcher {
     items: Arc<Mutex<Vec<String>>>,
@@ -59,16 +61,11 @@ impl StatusNotifierWatcher {
 
 pub async fn start() {
     // XXX XXX unwrap?
-    let watcher = StatusNotifierWatcher::default();
-    ConnectionBuilder::session()
-        .unwrap()
-        .name("org.kde.StatusNotifierWatcher")
-        .unwrap()
-        .serve_at("/StatusNotifierWatcher", watcher)
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
+    dbus_service::create("org.kde.StatusNotifierWatcher", |builder| {
+        builder.serve_at("/StatusNotifierWatcher", StatusNotifierWatcher::default())
+    })
+    .await
+    .unwrap();
 }
 
 // TODO spawn

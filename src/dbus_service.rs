@@ -31,10 +31,11 @@ pub async fn create<
             }
         };
         request_name().await;
+        let unique_name = connection.unique_name().map(|x| x.as_ref());
         if let Some(evt) = name_owner_changed_stream.next().await {
             let args = evt.args().unwrap();
             if args.name().as_ref() == well_known_name {
-                if have_bus_name.get() {
+                if args.new_owner().as_ref() != unique_name.as_ref() && have_bus_name.get() {
                     eprintln!("Lost bus name: {}", well_known_name);
                     have_bus_name.set(false);
                 }

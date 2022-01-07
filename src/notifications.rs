@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use futures::stream::StreamExt;
 use futures_channel::mpsc;
 use gtk4::{
     glib::{self, clone, subclass::Signal, SignalHandlerId},
@@ -18,20 +19,38 @@ use zbus::{dbus_interface, ConnectionBuilder, Result, SignalContext};
 use zvariant::OwnedValue;
 
 use crate::dbus_service;
+use crate::deref_cell::DerefCell;
 
 static PATH: &str = "/org/freedesktop/Notifications";
 static INTERFACE: &str = "org.freedesktop.Notifications";
 
-#[derive(Default)]
+enum Event {
+    NotificationReceived(NotificationId),
+    CloseNotification(NotificationId),
+}
+
 pub struct NotificationsInterfaceInner {
     next_id: Mutex<NotificationId>,
     notifications: Mutex<HashMap<NotificationId, Arc<Notification>>>,
+    sender: mpsc::UnboundedSender<Event>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct NotificationsInterface(Arc<NotificationsInterfaceInner>);
 
 impl NotificationsInterface {
+    fn new() -> (Self, mpsc::UnboundedReceiver<Event>) {
+        let (sender, receiver) = mpsc::unbounded();
+        (
+            Self(Arc::new(NotificationsInterfaceInner {
+                next_id: Default::default(),
+                notifications: Default::default(),
+                sender,
+            })),
+            receiver,
+        )
+    }
+
     fn next_id(&self) -> NotificationId {
         let mut next_id = self.0.next_id.lock().unwrap();
         let id = *next_id;
@@ -70,7 +89,10 @@ impl NotificationsInterface {
             .unwrap()
             .insert(id, notification);
 
-        // XXX self.emit_by_name("notification-received", &[&id]).unwrap();
+        self.0
+            .sender
+            .unbounded_send(Event::NotificationReceived(id))
+            .unwrap();
 
         id
     }
@@ -105,7 +127,10 @@ impl NotificationsInterface {
 
     async fn CloseNotification(&self, id: u32) {
         if let Some(id) = NotificationId::new(id) {
-            //XXX self.close_notification(id, CloseReason::Call).await;
+            self.0
+                .sender
+                .unbounded_send(Event::CloseNotification(id))
+                .unwrap();
         }
         // TODO error?
     }
@@ -128,7 +153,7 @@ impl NotificationsInterface {
 
 #[derive(Default)]
 pub struct NotificationsInner {
-    interface: NotificationsInterface,
+    interface: DerefCell<NotificationsInterface>,
     connection: OnceCell<zbus::Connection>,
 }
 
@@ -290,10 +315,24 @@ impl Notifications {
     pub fn new() -> Self {
         let notifications = glib::Object::new::<Self>(&[]).unwrap();
 
+        let (interface, mut receiver) = NotificationsInterface::new();
+        notifications.inner().interface.set(interface);
+
         glib::MainContext::default().spawn_local(clone!(@strong notifications => async move {
             // XXX unwrap
             let connection = dbus_service::create(INTERFACE, |builder| builder.serve_at(PATH, notifications.inner().interface.clone())).await.unwrap();
             let _ = notifications.inner().connection.set(connection.clone());
+
+            if let Some(event) = receiver.next().await {
+                match event {
+                    Event::NotificationReceived(id) => {
+                        notifications.emit_by_name("notification-received", &[&id]).unwrap();
+                    }
+                    Event::CloseNotification(id) =>  {
+                        notifications.close_notification(id, CloseReason::Call).await
+                    }
+                }
+            }
         }));
 
         notifications
@@ -344,7 +383,7 @@ impl Notifications {
             .cloned()
     }
 
-    pub fn connect_notification_recieved<F: Fn(Arc<Notification>) + 'static>(
+    pub fn connect_notification_received<F: Fn(Arc<Notification>) + 'static>(
         &self,
         cb: F,
     ) -> SignalHandlerId {

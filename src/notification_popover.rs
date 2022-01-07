@@ -83,7 +83,7 @@ impl NotificationPopover {
 
         obj.inner().notifications.set(notifications.clone());
         *obj.inner().ids.borrow_mut() = vec![
-            notifications.connect_notification_recieved(clone!(@weak obj => move |notification| {
+            notifications.connect_notification_received(clone!(@weak obj => move |notification| {
                  obj.handle_notification(&notification);
             })),
             notifications.connect_notification_closed(clone!(@weak obj => move |id| {
