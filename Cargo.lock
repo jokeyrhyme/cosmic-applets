@@ -1316,6 +1316,7 @@ dependencies = [
  "gtk4",
  "libcosmic",
  "once_cell",
+ "serde",
  "toml",
  "x11",
  "zbus",
