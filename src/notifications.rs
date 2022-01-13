@@ -359,7 +359,8 @@ impl Notifications {
 
         if let Some(connection) = self.inner().connection.get() {
             let ctxt = SignalContext::new(connection, PATH).unwrap(); // XXX unwrap?
-            NotificationsInterface::NotificationClosed(&ctxt, id.into(), reason as u32).await;
+            let _ =
+                NotificationsInterface::NotificationClosed(&ctxt, id.into(), reason as u32).await;
         }
     }
 
@@ -372,7 +373,7 @@ impl Notifications {
     pub async fn invoke_action(&self, id: NotificationId, action_key: &str) {
         if let Some(connection) = self.inner().connection.get() {
             let ctxt = SignalContext::new(connection, PATH).unwrap(); // XXX unwrap?
-            NotificationsInterface::ActionInvoked(&ctxt, id.into(), action_key).await;
+            let _ = NotificationsInterface::ActionInvoked(&ctxt, id.into(), action_key).await;
         }
     }
 
