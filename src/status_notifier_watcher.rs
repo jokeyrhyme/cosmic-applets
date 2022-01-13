@@ -60,10 +60,11 @@ impl StatusNotifierWatcher {
 }
 
 pub async fn start() {
-    // XXX XXX unwrap?
-    dbus_service::create("org.kde.StatusNotifierWatcher", |builder| {
+    if let Err(err) = dbus_service::create("org.kde.StatusNotifierWatcher", |builder| {
         builder.serve_at("/StatusNotifierWatcher", StatusNotifierWatcher::default())
     })
     .await
-    .unwrap();
+    {
+        eprintln!("Failed to start `StatusNotifierWatcher` service: {}", err);
+    }
 }

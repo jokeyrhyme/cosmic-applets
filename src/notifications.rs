@@ -318,8 +318,13 @@ impl Notifications {
         notifications.inner().interface.set(interface);
 
         glib::MainContext::default().spawn_local(clone!(@strong notifications => async move {
-            // XXX unwrap
-            let connection = dbus_service::create(INTERFACE, |builder| builder.serve_at(PATH, notifications.inner().interface.clone())).await.unwrap();
+            let connection = match dbus_service::create(INTERFACE, |builder| builder.serve_at(PATH, notifications.inner().interface.clone())).await {
+                Ok(connection) => connection,
+                Err(err) => {
+                    eprintln!("Failed to start `Notifications` service: {}", err);
+                    return;
+                }
+            };
             let _ = notifications.inner().connection.set(connection.clone());
 
             if let Some(event) = receiver.next().await {
