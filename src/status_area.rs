@@ -40,45 +40,46 @@ impl ObjectImpl for StatusAreaInner {
         self.box_.set(box_);
 
         glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
-            let connection = zbus::Connection::session().await.unwrap(); // XXX unwrap
-            let watcher = match StatusNotifierWatcherProxy::new(&connection).await {
-                Ok(watcher) => watcher,
-                Err(err) => {
-                    eprintln!("Failed to connect to 'org.kde.StatusNotifierWatcher': {}", err);
-                    return;
+            async {
+                let connection = zbus::Connection::session().await?;
+                let watcher = StatusNotifierWatcherProxy::new(&connection).await?;
+
+                let name = connection.unique_name().unwrap().as_str();
+                if let Err(err) = watcher.register_status_notifier_host(name).await {
+                    eprintln!("Failed to register status notifier host: {}", err);
                 }
-            };
 
-            let name = connection.unique_name().unwrap().as_str();
-            if let Err(err) = watcher.register_status_notifier_host(name).await {
-                eprintln!("Failed to register status notifier host: {}", err);
-            }
+                let mut registered_stream = watcher.receive_status_notifier_item_registered().await?;
+                let mut unregistered_stream = watcher.receive_status_notifier_item_unregistered().await?;
 
-            // unwrap
-            let mut registered_stream = watcher.receive_status_notifier_item_registered().await.unwrap();
-            let mut unregistered_stream = watcher.receive_status_notifier_item_unregistered().await.unwrap();
+                for name in watcher.registered_status_notifier_items().await? {
+                    glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
+                        obj.item_registered(&name).await;
+                    }));
+                }
 
-            for name in watcher.registered_status_notifier_items().await.unwrap() { // XXX
                 glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
-                    obj.item_registered(&name).await;
+                    if let Some(evt) = registered_stream.next().await {
+                        if let Ok(args) = evt.args() {
+                            obj.item_registered(&args.name).await;
+                        }
+                    }
                 }));
-            }
 
-            glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
-                if let Some(evt) = registered_stream.next().await {
-                    let args = evt.args().unwrap();
-                    obj.item_registered(&args.name).await;
-                }
-            }));
+                glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
+                    if let Some(evt) = unregistered_stream.next().await {
+                        if let Ok(args) = evt.args() {
+                            obj.item_unregistered(&args.name);
+                        }
+                    }
+                }));
 
-            glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
-                if let Some(evt) = unregistered_stream.next().await {
-                    let args = evt.args().unwrap();
-                    obj.item_unregistered(&args.name);
-                }
-            }));
+                let _ = obj.inner().watcher.set(watcher);
 
-            let _ = obj.inner().watcher.set(watcher);
+                Ok::<_, zbus::Error>(())
+            }.await.unwrap_or_else(|err| {
+                eprintln!("Failed to connect to 'org.kde.StatusNotifierWatcher': {}", err);
+            });
         }));
     }
 

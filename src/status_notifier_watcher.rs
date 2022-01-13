@@ -67,5 +67,3 @@ pub async fn start() {
     .await
     .unwrap();
 }
-
-// TODO spawn
