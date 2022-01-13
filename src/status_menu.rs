@@ -249,8 +249,23 @@ trait StatusNotifierItem {
     fn menu(&self) -> zbus::Result<zvariant::OwnedObjectPath>;
 }
 
-#[derive(Debug, serde::Deserialize, zvariant::Type)]
+#[derive(Debug)]
 struct Layout(i32, LayoutProps, Vec<Layout>);
+
+impl<'a> serde::Deserialize<'a> for Layout {
+    fn deserialize<D: serde::Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
+        let (id, props, children) =
+            <(i32, LayoutProps, Vec<(zvariant::Signature<'_>, Self)>)>::deserialize(deserializer)
+                .unwrap();
+        Ok(Self(id, props, children.into_iter().map(|x| x.1).collect()))
+    }
+}
+
+impl zvariant::Type for Layout {
+    fn signature() -> zvariant::Signature<'static> {
+        zvariant::Signature::try_from("(ia{sv}av)").unwrap()
+    }
+}
 
 #[derive(Debug, zvariant::DeserializeDict, zvariant::Type)]
 struct LayoutProps {
