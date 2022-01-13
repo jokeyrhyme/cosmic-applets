@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use std::sync::{Arc, Mutex};
-use zbus::{dbus_interface, ConnectionBuilder, MessageHeader, Result, SignalContext};
+use zbus::{dbus_interface, MessageHeader, Result, SignalContext};
 
 use crate::dbus_service;
 

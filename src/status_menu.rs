@@ -101,7 +101,10 @@ impl StatusMenu {
         let mut layout_updated_stream = menu.receive_layout_updated().await?;
         glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
             while let Some(evt) = layout_updated_stream.next().await {
-                let args = evt.args().unwrap();
+                let args = match evt.args() {
+                    Ok(args) => args,
+                    Err(_) => { continue; },
+                };
                 obj.layout_updated(args.revision, args.parent);
             }
         }));
@@ -250,7 +253,7 @@ trait StatusNotifierItem {
 }
 
 #[derive(Debug)]
-struct Layout(i32, LayoutProps, Vec<Layout>);
+pub struct Layout(i32, LayoutProps, Vec<Layout>);
 
 impl<'a> serde::Deserialize<'a> for Layout {
     fn deserialize<D: serde::Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
@@ -268,7 +271,7 @@ impl zvariant::Type for Layout {
 }
 
 #[derive(Debug, zvariant::DeserializeDict, zvariant::Type)]
-struct LayoutProps {
+pub struct LayoutProps {
     #[zvariant(rename = "accessible-desc")]
     accessible_desc: Option<String>,
     #[zvariant(rename = "children-display")]
@@ -286,6 +289,7 @@ struct LayoutProps {
     icon_data: Option<Vec<u8>>,
 }
 
+#[allow(dead_code)]
 impl Layout {
     fn id(&self) -> i32 {
         self.0

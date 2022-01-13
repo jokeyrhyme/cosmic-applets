@@ -38,20 +38,25 @@ impl ObjectImpl for MprisControlsInner {
         };
 
         glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
-            let connection = zbus::Connection::session().await.unwrap(); // XXX unwrap
-            let dbus = match DBusProxy::new(&connection).await {
-                Ok(dbus) => dbus,
+            let (dbus, mut name_owner_changed_stream) = match async {
+                let connection = zbus::Connection::session().await?;
+                let dbus = DBusProxy::new(&connection).await?;
+                let stream = dbus.receive_name_owner_changed().await?;
+                Ok::<_, zbus::Error>((dbus, stream))
+            }.await {
+                Ok(value) => value,
                 Err(err) => {
                     eprintln!("Failed to connect to 'org.freedesktop.DBus': {}", err);
                     return;
                 }
             };
 
-            let mut name_owner_changed_stream = dbus.receive_name_owner_changed().await.unwrap(); // XXX unwrap
-
             glib::MainContext::default().spawn_local(clone!(@strong obj => async move {
                 while let Some(evt) = name_owner_changed_stream.next().await {
-                    let args = evt.args().unwrap();
+                    let args = match evt.args() {
+                        Ok(args) => args,
+                        Err(_) => { continue; },
+                    };
                     if args.name.starts_with("org.mpris.MediaPlayer2.") {
                         if !args.old_owner.is_none() {
                             obj.player_removed(&args.name);

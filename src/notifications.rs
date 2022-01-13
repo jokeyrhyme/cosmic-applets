@@ -11,11 +11,12 @@ use once_cell::sync::Lazy;
 use once_cell::unsync::OnceCell;
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     fmt,
     num::NonZeroU32,
     sync::{Arc, Mutex},
 };
-use zbus::{dbus_interface, ConnectionBuilder, Result, SignalContext};
+use zbus::{dbus_interface, Result, SignalContext};
 use zvariant::OwnedValue;
 
 use crate::dbus_service;
@@ -191,8 +192,6 @@ glib::wrapper! {
 }
 
 struct Hints(HashMap<String, OwnedValue>);
-
-use std::convert::{TryFrom, TryInto};
 
 #[allow(dead_code)]
 impl Hints {

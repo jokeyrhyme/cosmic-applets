@@ -33,9 +33,12 @@ pub async fn create<
         let have_bus_name = Cell::new(false);
         let unique_name = connection.unique_name().map(|x| x.as_ref());
         while let Some(evt) = name_owner_changed_stream.next().await {
-            let args = evt.args().unwrap();
-            if args.name().as_ref() == well_known_name {
-                if args.new_owner().as_ref() == unique_name.as_ref() {
+            let args = match evt.args() {
+                Ok(args) => args,
+                Err(_) => { continue; },
+            };
+            if args.name.as_ref() == well_known_name {
+                if args.new_owner.as_ref() == unique_name.as_ref() {
                     eprintln!("Acquired bus name: {}", well_known_name);
                     have_bus_name.set(true);
                 } else if have_bus_name.get() {

@@ -39,7 +39,10 @@ impl ObjectImpl for NotificationPopoverInner {
                         return;
                     }
                     if let Some(id) = obj.id() {
-                        obj.inner().notifications.invoke_action(id, "default");
+                        let notifications = obj.inner().notifications.clone();
+                        glib::MainContext::default().spawn_local(async move {
+                            notifications.invoke_action(id, "default").await;
+                        });
                     }
                     obj.popdown();
                 }));
