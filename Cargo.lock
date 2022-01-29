@@ -94,9 +94,9 @@ dependencies = [
 
 [[package]]
 name = "async-task"
-version = "4.0.3"
+version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91831deabf0d6d7ec49552e489aed63b7456a7a3c46cff62adad428110b0af0"
+checksum = "677d306121baf53310a3fd342d88dc0824f6bbeace68347593658525565abee8"
 
 [[package]]
 name = "async-trait"
@@ -744,17 +744,16 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.113"
+version = "0.2.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eef78b64d87775463c549fbd80e19249ef436ea3bf1de2a1eb7e717ec7fab1e9"
+checksum = "565dbd88872dbe4cc8a46e527f26483c1d1f7afa6b884a3bd6cd893d4f98da74"
 
 [[package]]
 name = "libcosmic"
 version = "0.1.0"
-source = "git+https://github.com/pop-os/libcosmic#b606ed6a9b07d4b2cccf6858f2411969120dc7cb"
+source = "git+https://github.com/pop-os/libcosmic#08e70faffd71f02ef60e2f55cd8488a4daf65939"
 dependencies = [
  "cascade",
- "derivative",
  "gdk4",
  "gdk4-wayland",
  "gdk4-x11",
@@ -1108,18 +1107,18 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.135"
+version = "1.0.136"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cf9235533494ea2ddcdb794665461814781c53f19d87b76e571a1c35acbad2b"
+checksum = "ce31e24b01e1e524df96f1c2fdd054405f8d7376249a5110886fb4b658484789"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.135"
+version = "1.0.136"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8dcde03d87d4c973c04be249e7d8f0b35db1c848c487bd43032808e59dd8328d"
+checksum = "08597e7152fcd306f41838ed3e37be9eaeed2b61c42e2117266a554fab4662f9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1166,9 +1165,9 @@ checksum = "f2dd574626839106c320a323308629dcb1acfc96e32a8cba364ddc61ac23ee83"
 
 [[package]]
 name = "socket2"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f82496b90c36d70af5fcd482edaa2e0bd16fade569de1330405fecbbdac736b"
+checksum = "66d72b759436ae32898a2af0a14218dbf55efde3feeb170eb623637db85ee1e0"
 dependencies = [
  "libc",
  "winapi",
@@ -1454,9 +1453,9 @@ dependencies = [
 
 [[package]]
 name = "zvariant"
-version = "3.1.1"
+version = "3.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3e5f0c5e59387ef95e9845837408831545e3fa4960c485550577c74e74a307e"
+checksum = "49ea5dc38b2058fae6a5b79009388143dadce1e91c26a67f984a0fc0381c8033"
 dependencies = [
  "byteorder",
  "enumflags2",
@@ -1468,9 +1467,9 @@ dependencies = [
 
 [[package]]
 name = "zvariant_derive"
-version = "3.1.1"
+version = "3.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc88c5b820f3789337482b6278e2a57c41b8dff6b58950a094229e40de129ea7"
+checksum = "8c2cecc5a61c2a053f7f653a24cd15b3b0195d7f7ddb5042c837fb32e161fb7a"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
