@@ -6,6 +6,7 @@ use std::cell::Cell;
 
 use crate::application::PanelApp;
 use crate::deref_cell::DerefCell;
+use crate::power_menu::PowerMenu;
 use crate::status_area::StatusArea;
 use crate::time_button::TimeButton;
 
@@ -57,7 +58,11 @@ fn window_box(app: &PanelApp) -> gtk4::Widget {
             ..append(&button("Applications"));
         }));
         ..set_center_widget(Some(&TimeButton::new(app)));
-        ..set_end_widget(Some(&StatusArea::new()));
+        ..set_end_widget(Some(&cascade! {
+            gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+            ..append(&StatusArea::new());
+            ..append(&PowerMenu::new());
+        }));
     };
     widget.upcast()
 }
@@ -101,7 +106,11 @@ impl ObjectImpl for PanelWindowInner {
                 ..append(&button("Workspaces"));
                 ..append(&button("Applications"));
             }));
-            ..set_end_widget(Some(&StatusArea::new()));
+            ..set_end_widget(Some(&cascade! {
+                gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+                ..append(&StatusArea::new());
+                ..append(&PowerMenu::new());
+            }));
         };
 
         cascade! {
