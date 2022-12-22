@@ -2,11 +2,11 @@
 members = [
     "applets/cosmic-applet-notifications",
     "applets/cosmic-applet-status-area",
-    "applets/cosmic-app-list",
     "applets/cosmic-panel-button",
     "libcosmic-applet",
 ]
 exclude = [
+    "applets/cosmic-app-list",
     "applets/cosmic-applet-network",
     "applets/cosmic-applet-graphics",
     "applets/cosmic-applet-workspaces",
