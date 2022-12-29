@@ -16,9 +16,15 @@ use chrono::{DateTime, Local, Timelike};
 use std::time::Duration;
 
 pub fn main() -> cosmic::iced::Result {
-    let mut helper = CosmicAppletHelper::default();
-    helper.window_size(120, 16);
-    Time::run(helper.window_settings())
+    let helper = CosmicAppletHelper::default();
+    let mut settings = helper.window_settings();
+    match &mut settings.initial_surface {
+        cosmic::iced::wayland::InitialSurface::XdgWindow(s) => {
+            s.autosize = true;
+        },
+        _ => {}
+    };
+    Time::run(settings)
 }
 
 struct Time {
