@@ -60,6 +60,11 @@ install:
     install -Dm0644 cosmic-applet-power/data/{{power_id}}.desktop {{sharedir}}/applications/{{power_id}}.desktop
     install -Dm0755 target/release/cosmic-applet-power {{bindir}}/cosmic-applet-power
 
+    # status area
+    install -Dm0644 cosmic-applet-status-area/data/icons/{{status_area_id}}.svg {{iconsdir}}/{{status_area_id}}.svg
+    install -Dm0644 cosmic-applet-status-area/data/{{status_area_id}}.desktop {{sharedir}}/applications/{{status_area_id}}.desktop
+    install -Dm0755 target/release/cosmic-applet-status-area {{bindir}}/cosmic-applet-status-area
+
     # time
     install -Dm0644 cosmic-applet-time/data/icons/{{time_id}}.svg {{iconsdir}}/{{time_id}}.svg
     install -Dm0644 cosmic-applet-time/data/{{time_id}}.desktop {{sharedir}}/applications/{{time_id}}.desktop
