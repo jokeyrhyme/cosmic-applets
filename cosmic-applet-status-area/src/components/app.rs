@@ -98,8 +98,7 @@ impl Application for App {
                     Command::none()
                 }
                 status_notifier_watcher::Event::Registered(name) => {
-                    let (state, cmd) =
-                        status_menu::State::new(self.connection.as_ref().unwrap(), name);
+                    let (state, cmd) = status_menu::State::new(name);
                     let id = self.next_menu_id();
                     self.menus.insert(id, state);
                     Command::batch([
@@ -135,12 +134,11 @@ impl Application for App {
                     cmds.push(destroy_popup(id));
                 }
                 if self.open_menu.is_some() {
-                    // TODO close/open popup
                     let id = self.next_popup_id();
                     let popup_settings = self.applet_helper.get_popup_settings(
                         SurfaceId::new(0),
                         id,
-                        Some((400, 300)),
+                        None,
                         None,
                         None,
                     );
@@ -195,7 +193,6 @@ impl Application for App {
         }
     }
 
-    // TODO: Should be Option<Msg>?
     fn close_requested(&self, surface: SurfaceIdWrapper) -> Msg {
         Msg::Closed(surface)
     }

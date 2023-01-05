@@ -1,12 +1,12 @@
 use cosmic::iced;
-use futures::{FutureExt, Stream, StreamExt};
+use futures::{FutureExt, StreamExt};
 use zbus::zvariant::{self, OwnedValue};
 
 #[derive(Clone, Debug)]
 pub struct StatusNotifierItem {
     name: String,
     icon_name: String,
-    item_proxy: StatusNotifierItemProxy<'static>,
+    _item_proxy: StatusNotifierItemProxy<'static>,
     menu_proxy: DBusMenuProxy<'static>,
 }
 
@@ -36,7 +36,7 @@ impl StatusNotifierItem {
         Ok(Self {
             name,
             icon_name,
-            item_proxy,
+            _item_proxy: item_proxy,
             menu_proxy,
         })
     }
@@ -62,6 +62,10 @@ impl StatusNotifierItem {
             }
             .flatten_stream(),
         )
+    }
+
+    pub fn menu_proxy(&self) -> &DBusMenuProxy<'static> {
+        &self.menu_proxy
     }
 }
 
