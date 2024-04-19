@@ -1,5 +1,6 @@
 use cosmic::{
     app::{self, Command},
+    applet::cosmic_panel_config::PanelAnchor,
     iced::{
         self,
         wayland::{
@@ -14,9 +15,6 @@ use cosmic::{
 use std::collections::BTreeMap;
 
 use crate::{components::status_menu, subscriptions::status_notifier_watcher};
-
-// XXX copied from libcosmic
-const APPLET_PADDING: u32 = 8;
 
 #[derive(Clone, Debug)]
 pub enum Msg {
@@ -34,7 +32,6 @@ struct App {
     menus: BTreeMap<usize, status_menu::State>,
     open_menu: Option<usize>,
     max_menu_id: usize,
-    max_popup_id: u128,
     popup: Option<window::Id>,
 }
 
@@ -45,14 +42,14 @@ impl App {
     }
 
     fn next_popup_id(&mut self) -> window::Id {
-        self.max_popup_id += 1;
-        window::Id(self.max_popup_id)
+        window::Id::unique()
     }
 
     fn resize_window(&self) -> Command<Msg> {
-        let icon_size = self.core.applet_helper.suggested_size().0 as u32 + APPLET_PADDING * 2;
+        let icon_size = self.core.applet.suggested_size(true).0 as u32
+            + self.core.applet.suggested_padding(true) as u32 * 2;
         let n = self.menus.len() as u32;
-        resize_window(window::Id(0), 1.max(icon_size * n), icon_size)
+        resize_window(window::Id::MAIN, 1.max(icon_size * n), icon_size)
     }
 }
 
@@ -81,7 +78,7 @@ impl cosmic::Application for App {
     }
 
     fn style(&self) -> Option<<Theme as application::StyleSheet>::Style> {
-        Some(app::applet::style())
+        Some(cosmic::applet::style())
     }
 
     fn update(&mut self, message: Msg) -> Command<Msg> {
@@ -114,8 +111,7 @@ impl cosmic::Application for App {
                     ])
                 }
                 status_notifier_watcher::Event::Unregistered(name) => {
-                    if let Some((id, _)) =
-                        self.menus.iter().find(|(_id, menu)| menu.name() == &name)
+                    if let Some((id, _)) = self.menus.iter().find(|(_id, menu)| menu.name() == name)
                     {
                         let id = *id;
                         self.menus.remove(&id);
@@ -144,8 +140,8 @@ impl cosmic::Application for App {
                 if self.open_menu.is_some() {
                     if self.popup.is_none() {
                         let id = self.next_popup_id();
-                        let popup_settings = self.core.applet_helper.get_popup_settings(
-                            window::Id(0),
+                        let popup_settings = self.core.applet.get_popup_settings(
+                            window::Id::MAIN,
                             id,
                             None,
                             None,
@@ -175,20 +171,24 @@ impl cosmic::Application for App {
     }
 
     fn view(&self) -> cosmic::Element<'_, Msg> {
-        // XXX connect open event
-        iced::widget::row(
-            self.menus
-                .iter()
-                .map(|(id, menu)| {
-                    self.core
-                        .applet_helper
-                        .icon_button(menu.icon_name())
-                        .on_press(Msg::TogglePopup(*id))
-                        .into()
-                })
-                .collect(),
-        )
-        .into()
+        let children = self.menus.iter().map(|(id, menu)| {
+            match menu.icon_pixmap() {
+                Some(icon) if menu.icon_name() == "" => {
+                    self.core.applet.icon_button_from_handle(icon.clone())
+                }
+                _ => self.core.applet.icon_button(menu.icon_name()),
+            }
+            .on_press(Msg::TogglePopup(*id))
+            .into()
+        });
+        if matches!(
+            self.core.applet.anchor,
+            PanelAnchor::Left | PanelAnchor::Right
+        ) {
+            iced::widget::column(children).into()
+        } else {
+            iced::widget::row(children).into()
+        }
     }
 
     fn view_window(&self, _surface: window::Id) -> cosmic::Element<'_, Msg> {
@@ -196,7 +196,7 @@ impl cosmic::Application for App {
             Some(id) => match self.menus.get(&id) {
                 Some(menu) => self
                     .core
-                    .applet_helper
+                    .applet
                     .popup_container(menu.popup_view().map(move |msg| Msg::StatusMenu((id, msg))))
                     .into(),
                 None => unreachable!(),
@@ -211,5 +211,5 @@ impl cosmic::Application for App {
 }
 
 pub fn main() -> iced::Result {
-    app::applet::run::<App>(true, ())
+    cosmic::applet::run::<App>(true, ())
 }

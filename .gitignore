@@ -1,5 +1,5 @@
 # Cargo
-.cargo.
+.cargo
 target/
 build/
 _build/
@@ -14,7 +14,7 @@ build-aux/.flatpak-builder/
 flatpak_app
 .flatpak-builder
 
-.*
+.vscode/
 debian/*
 !debian/*install
 !debian/*postinst

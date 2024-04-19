@@ -5,6 +5,7 @@ use cosmic_dbus_networkmanager::{device::wireless::WirelessDevice, interface::en
 use futures_util::StreamExt;
 use itertools::Itertools;
 use std::collections::HashMap;
+use zbus::zvariant::ObjectPath;
 
 pub async fn handle_wireless_device(device: WirelessDevice<'_>) -> zbus::Result<Vec<AccessPoint>> {
     device.request_scan(HashMap::new()).await?;
@@ -38,14 +39,14 @@ pub async fn handle_wireless_device(device: WirelessDevice<'_>) -> zbus::Result<
             AccessPoint {
                 ssid,
                 strength,
-                state: state,
+                state,
                 working: false,
+                path: ap.path().to_owned(),
             },
         );
     }
     let aps = aps
-        .into_iter()
-        .map(|(_, x)| x)
+        .into_values()
         .sorted_by(|a, b| b.strength.cmp(&a.strength))
         .collect();
     Ok(aps)
@@ -57,4 +58,5 @@ pub struct AccessPoint {
     pub strength: u8,
     pub state: DeviceState,
     pub working: bool,
+    pub path: ObjectPath<'static>,
 }

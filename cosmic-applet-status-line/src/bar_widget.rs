@@ -23,17 +23,17 @@ const BTN_MIDDLE: u32 = 0x112;
 
 /// Wraps a `Row` widget, handling mouse input
 pub struct BarWidget<'a, Msg> {
-    pub row: widget::Row<'a, Msg, cosmic::Renderer>,
+    pub row: widget::Row<'a, Msg, cosmic::Theme, cosmic::Renderer>,
     pub name_instance: Vec<(Option<&'a str>, Option<&'a str>)>,
     pub on_press: fn(ClickEvent) -> Msg,
 }
 
-impl<'a, Msg> Widget<Msg, cosmic::Renderer> for BarWidget<'a, Msg> {
+impl<'a, Msg> Widget<Msg, cosmic::Theme, cosmic::Renderer> for BarWidget<'a, Msg> {
     delegate::delegate! {
         to self.row {
             fn children(&self) -> Vec<Tree>;
             fn diff(&mut self, tree: &mut Tree);
-            fn layout(&self, renderer: &cosmic::Renderer, limits: &Limits) -> Node;
+            fn layout(&self, tree: &mut Tree, renderer: &cosmic::Renderer, limits: &Limits) -> Node;
             fn operate(
                 &self,
                 tree: &mut Tree,
@@ -54,14 +54,6 @@ impl<'a, Msg> Widget<Msg, cosmic::Renderer> for BarWidget<'a, Msg> {
         }
     }
 
-    fn width(&self) -> Length {
-        Widget::width(&self.row)
-    }
-
-    fn height(&self) -> Length {
-        Widget::height(&self.row)
-    }
-
     fn on_event(
         &mut self,
         tree: &mut Tree,
@@ -79,6 +71,10 @@ impl<'a, Msg> Widget<Msg, cosmic::Renderer> for BarWidget<'a, Msg> {
         self.row.on_event(
             tree, event, layout, cursor, renderer, clipboard, shell, viewport,
         )
+    }
+
+    fn size(&self) -> iced::Size<Length> {
+        Widget::size(&self.row)
     }
 }
 
@@ -113,7 +109,12 @@ impl<'a, Msg> BarWidget<'a, Msg> {
             }
         };
 
-        let Some((n, bounds)) = layout.children().map(|x| x.bounds()).enumerate().find(|(_, bounds)| bounds.contains(cursor_position)) else {
+        let Some((n, bounds)) = layout
+            .children()
+            .map(|x| x.bounds())
+            .enumerate()
+            .find(|(_, bounds)| bounds.contains(cursor_position))
+        else {
             return event::Status::Ignored;
         };
 

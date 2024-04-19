@@ -1,23 +1,10 @@
-// SPDX-License-Identifier: MPL-2.0-only
-mod app;
-mod config;
-mod localize;
-mod toplevel_handler;
-mod toplevel_subscription;
-
-use log::info;
-
-use localize::localize;
-
-use crate::config::{APP_ID, VERSION};
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> cosmic::iced::Result {
-    // Initialize logger
-    pretty_env_logger::init();
-    info!("Iced Workspaces Applet ({})", APP_ID);
-    info!("Version: {}", VERSION);
-    // Prepare i18n
-    localize();
+    tracing_subscriber::fmt::init();
+    let _ = tracing_log::LogTracer::init();
 
-    app::run()
+    tracing::info!("Starting cosmic-app-list with version {VERSION}");
+
+    cosmic_app_list::run()
 }

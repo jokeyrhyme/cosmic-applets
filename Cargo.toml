@@ -1,36 +1,63 @@
 [workspace]
-
+default-members = ["cosmic-applets", "cosmic-panel-button"]
 members = [
     "cosmic-app-list",
+    "cosmic-applets",
     "cosmic-applet-audio",
     "cosmic-applet-battery",
     "cosmic-applet-bluetooth",
-    "cosmic-applet-graphics",
+    "cosmic-applet-minimize",
     "cosmic-applet-network",
     "cosmic-applet-notifications",
     "cosmic-applet-power",
     "cosmic-applet-status-area",
     "cosmic-applet-status-line",
+    "cosmic-applet-tiling",
     "cosmic-applet-time",
     "cosmic-applet-workspaces",
     "cosmic-panel-button",
 ]
 
-resolver="2"
+resolver = "2"
 
 [workspace.dependencies]
-cctk = { git = "https://github.com/pop-os/cosmic-protocols", package = "cosmic-client-toolkit", rev = "e39748e" }
-cosmic-protocols = { git = "https://github.com/pop-os/cosmic-protocols", default-features = false, features = ["client"], rev = "e39748e" }
-cosmic-time = { git = "https://github.com/pop-os/cosmic-time", default-features = false, features = ["libcosmic", "once_cell"] }
-libcosmic = { git = "https://github.com/pop-os/libcosmic", default-features = false, features = ["applet", "tokio", "wayland"] }
+anyhow = "1.0.81"
+cctk = { git = "https://github.com/pop-os/cosmic-protocols", package = "cosmic-client-toolkit", rev = "e4e6f8c" }
+cosmic-protocols = { git = "https://github.com/pop-os/cosmic-protocols", default-features = false, features = [
+    "client",
+], rev = "e4e6f8c" }
+cosmic-time = { git = "https://github.com/pop-os/cosmic-time", default-features = false, features = [
+    "libcosmic",
+    "once_cell",
+] }
+futures = "0.3"
+futures-util = "0.3"
+i18n-embed = { version = "0.14.1", features = [
+    "fluent-system",
+    "desktop-requester",
+] }
+i18n-embed-fl = "0.8"
+libcosmic = { git = "https://github.com/pop-os/libcosmic", default-features = false, features = [
+    "applet",
+    "applet-token",
+    "tokio",
+    "wayland",
+    "desktop",
+    "dbus-config",
+] }
+rust-embed = "8.3"
+rust-embed-utils = "8.3.0"
+rustix = { version = "0.38", features = ["fs", "process"] }
+zbus = { version = "3.15", default-features = false, features = ["tokio"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-log = "0.2.0"
 
 [profile.release]
-lto = "thin"
-# lto = "fat"
+lto = "fat"
 
-# [patch."https://github.com/pop-os/cosmic-time"]
-# cosmic-time = { path = "../cosmic-time" }
-# [patch."https://github.com/pop-os/libcosmic"]
-# libcosmic = { path = "../libcosmic" }
-# [patch."https://github.com/pop-os/cosmic-config"]
-# cosmic-config = { path = "../libcosmic/cosmic-config" }
+[workspace.metadata.cargo-machete]
+ignored = ["libcosmic"]
+
+[patch."https://github.com/Smithay/client-toolkit"]
+sctk = { git = "https://github.com/smithay/client-toolkit//", package = "smithay-client-toolkit", rev = "3bed072" }

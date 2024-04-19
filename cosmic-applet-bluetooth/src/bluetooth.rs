@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, hash::Hash, sync::Arc, time::Duration};
+use std::{collections::HashMap, fmt::Debug, hash::Hash, mem, sync::Arc, time::Duration};
 
 use bluer::{
     agent::{Agent, AgentHandle},
@@ -52,9 +52,8 @@ async fn start_listening(
                     return State::Finished;
                 }
             };
-            let (tx, rx) = channel(100);
 
-            let session_state = match BluerSessionState::new(session, rx).await {
+            let session_state = match BluerSessionState::new(session).await {
                 Ok(s) => s,
                 Err(_) => {
                     _ = output.send(BluerEvent::Finished).await;
@@ -63,10 +62,20 @@ async fn start_listening(
             };
 
             let state = session_state.bluer_state().await;
-
+            // reconnect to paired and trusted devices
+            if state.bluetooth_enabled {
+                for d in &state.devices {
+                    if d.paired_and_trusted() {
+                        _ = session_state
+                            .req_tx
+                            .send(BluerRequest::ConnectDevice(d.address))
+                            .await;
+                    }
+                }
+            }
             _ = output
                 .send(BluerEvent::Init {
-                    sender: tx,
+                    sender: session_state.req_tx.clone(),
                     state: state.clone(),
                 })
                 .await;
@@ -209,7 +218,7 @@ impl BluerDevice {
             .await
             .unwrap_or_default()
             .unwrap_or_else(|| device.address().to_string());
-        if name == "" {
+        if name.is_empty() {
             name = device.address().to_string();
         };
         let is_paired = device.is_paired().await.unwrap_or_default();
@@ -240,6 +249,19 @@ impl BluerDevice {
             properties,
             icon,
         }
+    }
+
+    fn paired_and_trusted(&self) -> bool {
+        self.properties
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p,
+                    DeviceProperty::Trusted(true) | DeviceProperty::Paired(true)
+                )
+            })
+            .count()
+            == 2
     }
 }
 
@@ -272,19 +294,17 @@ pub struct BluerSessionState {
     pub adapter: Adapter,
     pub devices: Arc<Mutex<Vec<BluerDevice>>>,
     pub rx: Option<Receiver<BluerSessionEvent>>,
+    pub req_tx: Sender<BluerRequest>,
     tx: Sender<BluerSessionEvent>,
     active_requests: Arc<Mutex<HashMap<BluerRequest, JoinHandle<anyhow::Result<()>>>>>,
 }
 
 impl BluerSessionState {
-    pub(crate) async fn new(
-        session: Session,
-        request_rx: Receiver<BluerRequest>,
-    ) -> anyhow::Result<Self> {
+    pub(crate) async fn new(session: Session) -> anyhow::Result<Self> {
         let adapter = session.default_adapter().await?;
         let devices = build_device_list(&adapter).await;
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-
+        let (req_tx, req_rx) = channel(100);
         let tx_clone_1 = tx.clone();
         let tx_clone_2 = tx.clone();
         let tx_clone_3 = tx.clone();
@@ -466,25 +486,59 @@ impl BluerSessionState {
             adapter,
             devices: Arc::new(Mutex::new(devices)),
             rx: Some(rx),
+            req_tx,
             tx,
             active_requests: Arc::new(Mutex::new(HashMap::new())),
         };
-        self_.process_requests(request_rx);
+        self_.process_requests(req_rx);
         self_.process_changes();
+        self_.listen_bluetooth_power_changes();
 
         Ok(self_)
+    }
+
+    fn listen_bluetooth_power_changes(&self) {
+        let tx = self.tx.clone();
+        let req_tx = self.req_tx.clone();
+        let adapter_clone = self.adapter.clone();
+        let _handle: JoinHandle<anyhow::Result<()>> = spawn(async move {
+            let mut status = adapter_clone.is_powered().await.unwrap_or_default();
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                let new_status = adapter_clone.is_powered().await.unwrap_or_default();
+                if new_status != status {
+                    status = new_status;
+                    let state = BluerState {
+                        devices: build_device_list(&adapter_clone).await,
+                        bluetooth_enabled: status,
+                        discoverable: adapter_clone.is_discoverable().await.unwrap_or_default(),
+                        pairable: adapter_clone.is_pairable().await.unwrap_or_default(),
+                    };
+                    if state.bluetooth_enabled {
+                        for d in &state.devices {
+                            if d.paired_and_trusted() {
+                                _ = req_tx.send(BluerRequest::ConnectDevice(d.address)).await;
+                            }
+                        }
+                    }
+
+                    let _ = tx.send(BluerSessionEvent::ChangesProcessed(state)).await;
+                }
+            }
+        });
     }
 
     // Note: For some reason, this doesn't actually seem to work so well. it seems unreliable...
     pub(crate) fn process_changes(&self) {
         let tx = self.tx.clone();
+        let req_tx = self.req_tx.clone();
         let adapter_clone = self.adapter.clone();
         let _monitor_devices: tokio::task::JoinHandle<Result<(), anyhow::Error>> =
             spawn(async move {
                 let mut change_stream = adapter_clone.discover_devices_with_changes().await?;
-
-                let mut devices_changed = false;
+                let mut changed = false;
                 let mut milli_timeout = 10;
+                let mut devices: Vec<BluerDevice> = Vec::new();
                 'outer: loop {
                     while let Ok(event) =
                         timeout(Duration::from_millis(milli_timeout), change_stream.next()).await
@@ -492,10 +546,19 @@ impl BluerSessionState {
                         if event.is_none() {
                             break 'outer;
                         }
-                        devices_changed = true;
+                        changed = true;
                     }
-                    if devices_changed {
-                        devices_changed = false;
+                    if changed {
+                        let mut new_devices = build_device_list(&adapter_clone).await;
+                        for d in new_devices
+                            .iter()
+                            .filter(|d| !devices.contains(d) && d.paired_and_trusted())
+                        {
+                            _ = req_tx.send(BluerRequest::ConnectDevice(d.address)).await;
+                        }
+                        devices = mem::take(&mut new_devices);
+
+                        changed = false;
                         let _ = tx
                             .send(BluerSessionEvent::ChangesProcessed(BluerState {
                                 devices: build_device_list(&adapter_clone).await,
@@ -544,37 +607,39 @@ impl BluerSessionState {
                             if let Err(e) = res {
                                 err_msg = Some(e.to_string());
                             }
-                            if *enabled {
-                                let res = adapter_clone.set_discoverable(*enabled).await;
-                                if let Err(e) = res {
-                                    err_msg = Some(e.to_string());
-                                }
-                            }
                         }
                         BluerRequest::PairDevice(address) => {
-                            let res = adapter_clone.device(address.clone());
+                            let res = adapter_clone.device(*address);
                             if let Err(err) = res {
                                 err_msg = Some(err.to_string());
                             } else if let Ok(device) = res {
                                 let res = device.pair().await;
                                 if let Err(err) = res {
                                     err_msg = Some(err.to_string());
+                                } else {
+                                    if let Err(err) = device.set_trusted(true).await {
+                                        tracing::error!(?err, "Failed to trust device.");
+                                    }
                                 }
                             }
                         }
                         BluerRequest::ConnectDevice(address) => {
-                            let res = adapter_clone.device(address.clone());
+                            let res = adapter_clone.device(*address);
                             if let Err(err) = res {
                                 err_msg = Some(err.to_string());
                             } else if let Ok(device) = res {
                                 let res = device.connect().await;
                                 if let Err(err) = res {
                                     err_msg = Some(err.to_string());
+                                } else {
+                                    if let Err(err) = device.set_trusted(true).await {
+                                        tracing::error!(?err, "Failed to trust device.");
+                                    }
                                 }
                             }
                         }
                         BluerRequest::DisconnectDevice(address) => {
-                            let res = adapter_clone.device(address.clone());
+                            let res = adapter_clone.device(*address);
                             if let Err(err) = res {
                                 err_msg = Some(err.to_string());
                             } else if let Ok(device) = res {
@@ -622,8 +687,7 @@ impl BluerSessionState {
                         })
                         .await;
 
-                    let mut active_requests_clone = active_requests_clone.lock().await;
-                    let _ = active_requests_clone.remove(&req_clone_2);
+                    active_requests_clone.lock().await.remove(&req_clone_2);
 
                     Ok(())
                 });
